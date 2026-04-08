@@ -6,7 +6,7 @@ import type { AppStore } from '../state/store.js'
 import { query } from '../core/query.js'
 import type { ContentBlock } from '../types.js'
 import { PermissionPrompt } from './PermissionPrompt.js'
-import { ProgressIndicator } from './ProgressIndicator.js'
+import { Spinner } from './Spinner.js'
 import { ErrorDisplay } from './ErrorDisplay.js'
 import { TokenUsage } from './TokenUsage.js'
 
@@ -120,12 +120,11 @@ export function App({ store }: AppProps) {
             </Box>
           )}
           {streamingText && <Text>{streamingText}</Text>}
-          {!thinking && !streamingText && <ProgressIndicator store={store} />}
         </Box>
       )}
 
-      {/* Progress indicator for tools */}
-      <ProgressIndicator store={store} />
+      {/* Spinner for streaming and tool progress */}
+      <Spinner store={store} />
 
       {/* Error display */}
       <ErrorDisplay store={store} />

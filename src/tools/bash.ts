@@ -1,8 +1,6 @@
-import { exec } from 'child_process'
-import { promisify } from 'util'
-import type { Tool } from '../types.js'
-
-const execAsync = promisify(exec)
+import { spawn } from 'child_process'
+import type { Tool, ToolContext } from '../types.js'
+import type { AppStore } from '../state/store.js'
 
 interface BashInput {
   command: string
@@ -33,29 +31,118 @@ export const BashTool: Tool<BashInput, string> = {
     required: ['command'],
   },
 
-  async execute(input: BashInput) {
+  async execute(input: BashInput, context: ToolContext, store?: AppStore) {
     const timeout = input.timeout || 120000
 
-    try {
-      const { stdout, stderr } = await execAsync(input.command, {
-        timeout,
-        maxBuffer: 10 * 1024 * 1024, // 10MB
+    // 更新进度的辅助函数
+    const updateProgress = (progress: Partial<{
+      output: string
+      totalLines: number
+      totalBytes: number
+      elapsedTimeSeconds: number
+      status: 'running' | 'completed' | 'error'
+      message?: string
+    }>) => {
+      if (store) {
+        store.getState().updateToolProgress(progress)
+      }
+    }
+
+    return new Promise((resolve) => {
+      let output = ''
+      let startTime = Date.now()
+
+      // 设置初始进度
+      if (store) {
+        store.getState().setToolProgress({
+          name: 'Bash',
+          status: 'running',
+          startTime,
+        })
+      }
+
+      const child = spawn(input.command, [], {
+        shell: true,
+        cwd: context.cwd,
       })
 
-      let result = ''
-      if (stdout) result += stdout
-      if (stderr) result += `\n[stderr]\n${stderr}`
+      // 设置超时
+      const timer = setTimeout(() => {
+        child.kill('SIGKILL')
+        updateProgress({
+          status: 'error',
+          message: `Timed out after ${timeout}ms`,
+        })
+        resolve(`Error: Command timed out after ${timeout}ms\nOutput:\n${output}`)
+      }, timeout)
 
-      return result || '(no output)'
-    } catch (error: unknown) {
-      if (error instanceof Error) {
-        const execError = error as Error & { stdout?: string; stderr?: string; killed?: boolean }
-        if (execError.killed) {
-          return `Error: Command timed out after ${timeout}ms`
+      child.stdout?.on('data', (data: Buffer) => {
+        const chunk = data.toString()
+        output += chunk
+
+        // 实时更新进度
+        const lines = output.split('\n').filter(l => l.trim()).length
+        const elapsed = Math.round((Date.now() - startTime) / 1000)
+        updateProgress({
+          output: chunk,
+          totalLines: lines,
+          totalBytes: output.length,
+          elapsedTimeSeconds: elapsed,
+        })
+      })
+
+      child.stderr?.on('data', (data: Buffer) => {
+        const chunk = data.toString()
+        output += `\n[stderr]\n${chunk}`
+
+        const lines = output.split('\n').filter(l => l.trim()).length
+        const elapsed = Math.round((Date.now() - startTime) / 1000)
+        updateProgress({
+          output: chunk,
+          totalLines: lines,
+          totalBytes: output.length,
+          elapsedTimeSeconds: elapsed,
+        })
+      })
+
+      child.on('close', (code) => {
+        clearTimeout(timer)
+        const elapsed = Math.round((Date.now() - startTime) / 1000)
+
+        if (store) {
+          store.getState().setToolProgress({
+            name: 'Bash',
+            status: code === 0 ? 'completed' : 'error',
+            startTime,
+            output: output.slice(-500), // 保留最后 500 字符
+            totalLines: output.split('\n').filter(l => l.trim()).length,
+            totalBytes: output.length,
+            elapsedTimeSeconds: elapsed,
+            message: code === 0 ? `done (${elapsed}s)` : `exit ${code}`,
+          })
         }
-        return `Error: ${execError.message}\n${execError.stderr || ''}`
-      }
-      return `Error: ${String(error)}`
-    }
+
+        if (code === 0) {
+          resolve(output || '(no output)')
+        } else {
+          resolve(`Exit code: ${code}\n${output}`)
+        }
+      })
+
+      child.on('error', (error) => {
+        clearTimeout(timer)
+
+        if (store) {
+          store.getState().setToolProgress({
+            name: 'Bash',
+            status: 'error',
+            startTime,
+            message: error.message,
+          })
+        }
+
+        resolve(`Error: ${error.message}`)
+      })
+    })
   },
 }

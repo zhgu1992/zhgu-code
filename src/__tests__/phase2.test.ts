@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { createStore, type AppStore } from './src/state/store.js'
-import { getTools } from './src/tools/registry.js'
+import { createStore, type AppStore } from '../state/store.js'
+import { getTools } from '../tools/registry.js'
 
 // Mock store factory
 function createTestStore(): AppStore {

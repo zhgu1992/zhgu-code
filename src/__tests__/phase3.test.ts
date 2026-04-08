@@ -1,9 +1,9 @@
 import { describe, test, expect, beforeEach } from 'bun:test'
 import { create } from 'zustand'
-import { getTools } from './src/tools/registry.js'
-import { executeTool } from './src/tools/executor.js'
-import type { AppState, AppActions, PendingTool, ToolProgress } from './src/state/store.js'
-import type { PermissionMode } from './src/constants.js'
+import { getTools } from '../tools/registry.js'
+import { executeTool } from '../tools/executor.js'
+import type { AppState, AppActions, PendingTool, ToolProgress } from '../state/store.js'
+import type { PermissionMode } from '../constants.js'
 
 type StoreState = AppState & AppActions
 

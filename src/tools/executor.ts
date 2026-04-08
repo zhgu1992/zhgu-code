@@ -36,13 +36,12 @@ export async function executeTool(
   })
 
   try {
-    const result = await tool.execute(input, context)
+    // 传递 store 给 tool，以便实时更新进度
+    const result = await tool.execute(input, context, store)
 
-    store.getState().setToolProgress({
-      name,
-      status: 'completed',
-      startTime: Date.now(),
-    })
+    // 清除工具进度，让 Spinner 恢复显示 API 调用状态
+    // 不显示 "完成" 状态，因为接下来还有 API 处理
+    store.getState().setToolProgress(null)
 
     return String(result ?? '')
   } catch (error) {

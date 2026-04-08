@@ -16,6 +16,11 @@ export interface ToolProgress {
   status: 'pending' | 'running' | 'completed' | 'error'
   message?: string
   startTime: number
+  // Bash 扩展信息
+  output?: string
+  totalLines?: number
+  totalBytes?: number
+  elapsedTimeSeconds?: number
 }
 
 export interface AppState {
@@ -72,6 +77,7 @@ export interface AppActions {
 
   // Tool progress
   setToolProgress: (progress: ToolProgress | null) => void
+  updateToolProgress: (updates: Partial<ToolProgress>) => void
 
   // Token usage
   setTokenUsage: (input: number, output: number) => void
@@ -115,7 +121,7 @@ export function createStore(options: CreateStoreOptions): AppStore {
 
     clearMessages: () => set({ messages: [] }),
 
-    startStreaming: () => set({ isStreaming: true, thinking: null }),
+    startStreaming: () => set({ isStreaming: true }),
 
     stopStreaming: () => set({ isStreaming: false, thinking: null }),
 
@@ -142,6 +148,13 @@ export function createStore(options: CreateStoreOptions): AppStore {
 
     // Tool progress
     setToolProgress: (progress) => set({ toolProgress: progress }),
+
+    // Tool progress update (partial update for streaming)
+    updateToolProgress: (updates: Partial<ToolProgress>) => set((state) => ({
+      toolProgress: state.toolProgress
+        ? { ...state.toolProgress, ...updates }
+        : null,
+    })),
 
     // Token usage
     setTokenUsage: (input, output) => set({ inputTokens: input, outputTokens: output }),

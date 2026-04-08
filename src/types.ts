@@ -126,7 +126,7 @@ export interface ToolSchemaProperty {
   maxItems?: number
 }
 
-export interface Tool<D = unknown, R = unknown> {
+export interface Tool<D = unknown, R = unknown, S = unknown> {
   name: string
   description: string
   inputSchema: {
@@ -134,7 +134,7 @@ export interface Tool<D = unknown, R = unknown> {
     properties: Record<string, ToolSchemaProperty>
     required?: string[]
   }
-  execute: (input: D, context: ToolContext) => Promise<R>
+  execute: (input: D, context: ToolContext, store?: S) => Promise<R>
 }
 
 export interface ToolContext {

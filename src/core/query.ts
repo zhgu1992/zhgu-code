@@ -24,6 +24,8 @@ export async function query(store: AppStore, options?: { quiet?: boolean }): Pro
   }
   const systemPrompt = buildSystemPrompt(context)
 
+  // Clear streaming state at the start of each query to avoid accumulation
+  state.setStreamingText(null)
   state.startStreaming()
   state.setError(null) // Clear previous errors
 
@@ -103,7 +105,9 @@ export async function query(store: AppStore, options?: { quiet?: boolean }): Pro
               isToolResult: true,
             })
 
-            state.setStreamingText(null)
+            // Set intermediate state before recursive call
+            state.setStreamingText('🔄 Processing response...')
+            // Don't clear thinking - keep showing intermediate progress
             // Recursively call query for multi-turn
             return query(store, options)
           }
@@ -143,7 +147,9 @@ export async function query(store: AppStore, options?: { quiet?: boolean }): Pro
             isToolResult: true,
           })
 
-          state.setStreamingText(null)
+          // Set intermediate state before recursive call
+          state.setStreamingText('🔄 Processing response...')
+          // Don't clear thinking - keep showing intermediate progress
           // Recursively call query for multi-turn
           return query(store, options)
 
