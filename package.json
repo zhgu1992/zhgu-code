@@ -1,0 +1,33 @@
+{
+  "name": "zhgu-code",
+  "version": "0.1.0",
+  "description": "A concise, maintainable AI coding assistant CLI",
+  "type": "module",
+  "bin": {
+    "zhgu-code": "./dist/entrypoint.js"
+  },
+  "scripts": {
+    "dev": "bun run src/entrypoint.ts",
+    "build": "bun build src/entrypoint.ts --outdir dist --target bun",
+    "lint": "biome lint src/",
+    "lint:fix": "biome lint --fix src/",
+    "format": "biome format --write src/",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.40.0",
+    "chalk": "^5.3.0",
+    "commander": "^12.0.0",
+    "ink": "^4.1.0",
+    "ink-text-input": "^5.0.1",
+    "react": "^18.3.0",
+    "zod": "^3.23.0",
+    "zustand": "^4.5.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.8.0",
+    "@types/bun": "latest",
+    "@types/react": "^18.3.0",
+    "typescript": "^5.4.0"
+  }
+}
