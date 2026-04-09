@@ -24,6 +24,7 @@ export interface ToolResultContent {
 export type MessageContent = string | ContentBlock[]
 
 export interface Message {
+  id?: string
   role: 'user' | 'assistant' | 'system'
   content: MessageContent
   // Mark if this is a tool result (internal, shouldn't display in UI)

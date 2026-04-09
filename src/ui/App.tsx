@@ -26,6 +26,7 @@ export function App({ store }: AppProps) {
 
   const handleSubmit = useCallback((value: string) => {
     if (!value.trim()) return
+    if (store.getState().isStreaming) return
 
     setInput('')
 
@@ -35,12 +36,9 @@ export function App({ store }: AppProps) {
       content: value,
     })
 
-    // Use setTimeout to ensure UI updates before async operation
-    setTimeout(() => {
-      query(store).catch((err) => {
-        store.getState().setError(err instanceof Error ? err.message : String(err))
-      })
-    }, 0)
+    void query(store, { emitStdout: false }).catch((err) => {
+      store.getState().setError(err instanceof Error ? err.message : String(err))
+    })
   }, [store])
 
   const renderContent = (content: string | ContentBlock[]) => {
@@ -97,7 +95,7 @@ export function App({ store }: AppProps) {
         {messages
           .filter((msg) => !msg.isToolResult)
           .map((msg, i) => (
-            <Box key={i} marginBottom={1} flexDirection="column">
+            <Box key={msg.id ?? `msg-${i}`} marginBottom={1} flexDirection="column">
               <Text
                 bold
                 color={msg.role === 'user' ? 'green' : msg.role === 'assistant' ? 'blue' : 'gray'}
@@ -109,17 +107,23 @@ export function App({ store }: AppProps) {
           ))}
       </Box>
 
-      {/* Streaming indicator - show thinking or text */}
+      {/* Streaming assistant message */}
       {isStreaming && (
-        <Box flexDirection="column" marginBottom={1}>
-          {thinking && (
-            <Box paddingLeft={1}>
+        <Box marginBottom={1} flexDirection="column">
+          <Text bold color="blue">
+            Assistant:{' '}
+          </Text>
+          <Box paddingLeft={2} flexDirection="column">
+            {thinking && (
               <Text dimColor italic>
                 ∴ Thinking: {thinking.length > 200 ? thinking.slice(0, 200) + '...' : thinking}
               </Text>
-            </Box>
-          )}
-          {streamingText && <Text>{streamingText}</Text>}
+            )}
+            {streamingText && <Text>{streamingText}</Text>}
+            {!thinking && !streamingText && (
+              <Text dimColor>…</Text>
+            )}
+          </Box>
         </Box>
       )}
 

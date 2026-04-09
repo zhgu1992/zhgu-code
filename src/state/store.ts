@@ -95,6 +95,8 @@ interface CreateStoreOptions {
 }
 
 export function createStore(options: CreateStoreOptions): AppStore {
+  let messageSeq = 1
+
   return create<StoreState>((set, get) => ({
     // Initial state
     model: options.model,
@@ -115,9 +117,15 @@ export function createStore(options: CreateStoreOptions): AppStore {
     // Actions
     setContext: (context: Context) => set({ context }),
 
-    addMessage: (message: Message) => set((state) => ({
-      messages: [...state.messages, message],
-    })),
+    addMessage: (message: Message) => set((state) => {
+      if (message.id) {
+        return { messages: [...state.messages, message] }
+      }
+
+      return {
+        messages: [...state.messages, { ...message, id: `m_${messageSeq++}` }],
+      }
+    }),
 
     clearMessages: () => set({ messages: [] }),
 

@@ -6,10 +6,17 @@ import { executeTool } from '../tools/executor.js'
 import type { Message, ContentBlock } from '../types.js'
 import type { Context } from './context.js'
 
-export async function query(store: AppStore, options?: { quiet?: boolean }): Promise<void> {
+interface QueryOptions {
+  quiet?: boolean
+  emitStdout?: boolean
+}
+
+export async function query(store: AppStore, options?: QueryOptions): Promise<void> {
   const state = store.getState()
   const tools = getTools()
   const quiet = options?.quiet ?? state.quiet
+  const emitStdout = options?.emitStdout ?? true
+  let handoffToNextTurn = false
 
   const messages = state.messages.map(formatMessageForAPI)
 
@@ -25,7 +32,8 @@ export async function query(store: AppStore, options?: { quiet?: boolean }): Pro
   const systemPrompt = buildSystemPrompt(context)
 
   // Clear streaming state at the start of each query to avoid accumulation
-  state.setStreamingText(null)
+  state.setStreamingText('Connecting...')
+  state.setThinking(null)
   state.startStreaming()
   state.setError(null) // Clear previous errors
 
@@ -56,7 +64,7 @@ export async function query(store: AppStore, options?: { quiet?: boolean }): Pro
           // Update streaming text in state for UI to display
           state.setStreamingText(currentText)
           // Also output to stdout for pipe mode
-          if (!quiet) {
+          if (!quiet && emitStdout) {
             process.stdout.write(event.text)
           }
           break
@@ -65,7 +73,7 @@ export async function query(store: AppStore, options?: { quiet?: boolean }): Pro
           // Start tracking a new tool call
           currentTool = { id: event.id, name: event.name, input: {} }
           state.setStreamingText(`🔧 Tool: ${event.name}`)
-          if (!quiet) {
+          if (!quiet && emitStdout) {
             console.log(`\n🔧 Tool: ${event.name}`)
           }
           break
@@ -109,6 +117,7 @@ export async function query(store: AppStore, options?: { quiet?: boolean }): Pro
             state.setStreamingText('🔄 Processing response...')
             // Don't clear thinking - keep showing intermediate progress
             // Recursively call query for multi-turn
+            handoffToNextTurn = true
             return query(store, options)
           }
           break
@@ -116,7 +125,7 @@ export async function query(store: AppStore, options?: { quiet?: boolean }): Pro
         case 'tool_use':
           // Legacy: tool with complete input (non-streaming case)
           state.setStreamingText(`🔧 Executing: ${event.name}...`)
-          if (!quiet) {
+          if (!quiet && emitStdout) {
             console.log(`\n🔧 Tool: ${event.name}`)
           }
           const legacyResult = await executeTool(event.name, event.input, store)
@@ -151,6 +160,7 @@ export async function query(store: AppStore, options?: { quiet?: boolean }): Pro
           state.setStreamingText('🔄 Processing response...')
           // Don't clear thinking - keep showing intermediate progress
           // Recursively call query for multi-turn
+          handoffToNextTurn = true
           return query(store, options)
 
         case 'done':
@@ -166,7 +176,7 @@ export async function query(store: AppStore, options?: { quiet?: boolean }): Pro
           // Add final assistant message (only if has text content)
           const hasTextContent = assistantContent.some(b => b.type === 'text')
           if (hasTextContent || currentThinking) {
-            if (!quiet) {
+            if (!quiet && emitStdout) {
               console.log('') // newline
             }
             const finalContent: ContentBlock[] = []
@@ -188,7 +198,9 @@ export async function query(store: AppStore, options?: { quiet?: boolean }): Pro
     console.error('Query Error:', error)
     state.setError(error instanceof Error ? error.message : String(error))
   } finally {
-    state.stopStreaming()
+    if (!handoffToNextTurn) {
+      state.stopStreaming()
+    }
   }
 }
 

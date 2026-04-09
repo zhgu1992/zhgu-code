@@ -165,14 +165,6 @@ export function Spinner({ store }: SpinnerProps) {
         </Text>
       </Box>
 
-      {/* Thinking indicator */}
-      {thinking && thinking.length > 0 && (
-        <Box paddingLeft={2} marginTop={1}>
-          <Text dimColor italic>
-            ∴ Thinking…
-          </Text>
-        </Box>
-      )}
     </Box>
   )
 }
