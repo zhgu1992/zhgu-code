@@ -19,6 +19,9 @@
 4. 观测链路（trace JSONL + replay/assertions）
 5. 模块化目录（`core / application / platform / observability`）
 
+## 效果（当前）
+![img.png](img.png)
+
 ## 架构与文档
 
 1. 文档导航: `docs/README.md`
