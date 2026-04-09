@@ -1,9 +1,11 @@
+import { resolve } from 'node:path'
 import { create, type UseBoundStore, type StoreApi } from 'zustand'
 import type { Message } from '../definitions/types/index.js'
 import type { Context } from '../core/context.js'
 import type { PermissionMode } from '../definitions/types/permission.js'
 import { createSessionId, createSpanId, createTraceId } from '../observability/ids.js'
 import { getTraceBus } from '../observability/trace-bus.js'
+import { JsonlTranscriptWriter } from '../application/query/transcript/writer.js'
 import type {
   QueryTurnState,
   QueryTurnStopReason,
@@ -114,6 +116,40 @@ export function createStore(options: CreateStoreOptions): AppStore {
   const sessionId = createSessionId()
   const traceId = createTraceId()
   const traceBus = getTraceBus()
+  const transcriptFilePath = resolve(
+    process.cwd(),
+    process.env.ZHGU_TRANSCRIPT_FILE || '.trace/transcript.jsonl',
+  )
+  const transcriptWriter = new JsonlTranscriptWriter({
+    outputPath: transcriptFilePath,
+    onError: (error, context) => {
+      const message = error instanceof Error ? error.message : String(error)
+      traceBus.emit({
+        stage: 'state',
+        event: 'transcript_write_error',
+        status: 'error',
+        session_id: sessionId,
+        trace_id: traceId,
+        span_id: createSpanId(),
+        priority: 'high',
+        payload: {
+          file: context.outputPath,
+          event_type: context.event.type,
+          message,
+        },
+      })
+      process.stderr.write(
+        `[transcript] write failed path=${context.outputPath} type=${context.event.type} error=${message}\n`,
+      )
+    },
+  })
+
+  transcriptWriter.recordSessionStart({
+    sessionId,
+    traceId,
+    model: options.model,
+    cwd: options.cwd,
+  })
 
   return create<StoreState>((set, get) => ({
     // Initial state
@@ -170,15 +206,26 @@ export function createStore(options: CreateStoreOptions): AppStore {
       })
     },
 
-    addMessage: (message: Message) => set((state) => {
-      if (message.id) {
-        return { messages: [...state.messages, message] }
-      }
+    addMessage: (message: Message) => {
+      const state = get()
+      const persistedMessage: Message & { id: string } = message.id
+        ? { ...message, id: message.id }
+        : { ...message, id: `m_${messageSeq++}` }
 
-      return {
-        messages: [...state.messages, { ...message, id: `m_${messageSeq++}` }],
-      }
-    }),
+      set((current) => ({
+        messages: [...current.messages, persistedMessage],
+      }))
+
+      transcriptWriter.recordMessageAppend({
+        sessionId: state.sessionId,
+        traceId: state.traceId,
+        turnId: state.currentTurnId ?? undefined,
+        messageId: persistedMessage.id,
+        role: persistedMessage.role,
+        content: persistedMessage.content,
+        isToolResult: persistedMessage.isToolResult === true,
+      })
+    },
 
     clearMessages: () => set({ messages: [] }),
 
