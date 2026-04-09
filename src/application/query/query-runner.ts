@@ -20,6 +20,8 @@ import {
   formatBudgetExceededMessage,
   type BudgetExceeded,
 } from './budget.js'
+import { classifyQueryError } from './errors.js'
+import { decideRecovery, sleep } from './recovery.js'
 
 export async function runQuery(store: AppStore, options?: QueryOptions): Promise<void> {
   const state = store.getState()
@@ -33,6 +35,7 @@ export async function runQuery(store: AppStore, options?: QueryOptions): Promise
   let errorMessage: string | undefined
   let handoffToNextTurn = false
   let budgetStopped = false
+  let providerRecoveryAttempt = 0
 
   const turnStateMachine = createTurnStateMachine({
     onTransition: (transition) => {
@@ -94,6 +97,47 @@ export async function runQuery(store: AppStore, options?: QueryOptions): Promise
     return 'stopped'
   }
 
+  const tryTransition = (event: import('../../architecture/contracts/query-engine.js').QueryTurnEvent): void => {
+    try {
+      turnStateMachine.transition({ type: event })
+    } catch (transitionError) {
+      if (!(transitionError instanceof IllegalTurnTransitionError)) {
+        throw transitionError
+      }
+    }
+  }
+
+  const emitRecoveryDecision = (
+    payload: {
+      source: 'provider'
+      errorClass: string
+      action: 'retry' | 'stop' | 'fatal'
+      attempt: number
+      maxAttempts: number
+      message: string
+    },
+    status: 'ok' | 'error',
+  ): void => {
+    traceBus.emit({
+      stage: 'query',
+      event: 'recovery_decision',
+      status,
+      session_id: state.sessionId,
+      trace_id: state.traceId,
+      turn_id: turnId,
+      span_id: createSpanId(),
+      parent_span_id: turnSpanId,
+      payload: {
+        source: payload.source,
+        error_class: payload.errorClass,
+        action: payload.action,
+        attempt: payload.attempt,
+        max_attempts: payload.maxAttempts,
+        message: payload.message,
+      },
+    })
+  }
+
   const contextBudgetCheck = evaluateBudget(budget, {
     usage: {
       inputTokens: 0,
@@ -113,146 +157,192 @@ export async function runQuery(store: AppStore, options?: QueryOptions): Promise
   state.setError(null)
 
   try {
-    const streamIterator = stream(
-      {
-        model: state.model,
-        max_tokens: 4096,
-        system: systemPrompt,
-        messages,
-        tools: tools.toAPISchema(),
-      },
-      createProviderHooks({
-        traceBus,
-        state,
-        turnId,
-        turnSpanId,
-        providerSpanId,
-      }),
-    )
+    let outcome: import('./stream-consumer.js').StreamConsumerOutcome = 'completed'
 
-    const consumerState = {
-      assistantContent: [] as import('../../definitions/types/index.js').ContentBlock[],
-      currentText: '',
-      currentThinking: '',
-      currentTool: null as { id: string; name: string; input: unknown } | null,
+    while (true) {
+      try {
+        const streamIterator = stream(
+          {
+            model: state.model,
+            max_tokens: 4096,
+            system: systemPrompt,
+            messages,
+            tools: tools.toAPISchema(),
+          },
+          createProviderHooks({
+            traceBus,
+            state,
+            turnId,
+            turnSpanId,
+            providerSpanId,
+          }),
+        )
+
+        const consumerState = {
+          assistantContent: [] as import('../../definitions/types/index.js').ContentBlock[],
+          currentText: '',
+          currentThinking: '',
+          currentTool: null as { id: string; name: string; input: unknown } | null,
+        }
+
+        outcome = await consumeStreamEvents(streamIterator, consumerState, {
+          onThinkingChunk: (chunk, s) => {
+            applyThinkingChunk(s, chunk)
+            state.setThinking(s.currentThinking)
+          },
+          onTextChunk: (chunk, s) => {
+            applyTextChunk(s, chunk)
+            state.setStreamingText(s.currentText)
+            const outputBudgetCheck = evaluateBudget(budget, {
+              usage: {
+                inputTokens: 0,
+                outputTokens: estimateTokensFromText(s.currentText),
+                contextTokens: 0,
+              },
+              estimated: { outputTokensEstimated: true },
+            })
+            if (outputBudgetCheck) {
+              return stopForBudget(outputBudgetCheck)
+            }
+            if (!quiet && emitStdout) {
+              process.stdout.write(chunk)
+            }
+          },
+          onToolUseStart: (event, s) => {
+            s.currentTool = { id: event.id, name: event.name, input: {} }
+            turnStateMachine.transition({
+              type: 'tool_use_detected',
+              toolMode: state.permissionMode === 'ask' ? 'ask' : 'auto',
+            })
+            state.setStreamingText(`🔧 Tool: ${event.name}`)
+            if (!quiet && emitStdout) {
+              console.log(`\n🔧 Tool: ${event.name}`)
+            }
+          },
+          onToolInputComplete: async (event, s) => {
+            if (!s.currentTool || !s.currentTool.id) {
+              return 'completed'
+            }
+
+            s.currentTool.input = event.input
+            const result = await executeToolAndPersist({
+              store,
+              call: {
+                id: s.currentTool.id,
+                name: s.currentTool.name,
+                input: s.currentTool.input,
+              },
+              assistantContent: s.assistantContent,
+              turnStateMachine,
+            })
+
+            return result
+          },
+          onLegacyToolUse: async (event, s) => {
+            turnStateMachine.transition({
+              type: 'tool_use_detected',
+              toolMode: state.permissionMode === 'ask' ? 'ask' : 'auto',
+            })
+            if (!quiet && emitStdout) {
+              console.log(`\n🔧 Tool: ${event.name}`)
+            }
+            return executeToolAndPersist({
+              store,
+              call: { id: event.id, name: event.name, input: event.input },
+              assistantContent: s.assistantContent,
+              turnStateMachine,
+            })
+          },
+          onDone: (event, s) => {
+            const hasProviderUsage =
+              event.inputTokens !== undefined || event.outputTokens !== undefined
+
+            if (hasProviderUsage) {
+              const currentState = store.getState()
+              currentState.setTokenUsage(
+                currentState.inputTokens + (event.inputTokens ?? 0),
+                currentState.outputTokens + (event.outputTokens ?? 0),
+              )
+            }
+
+            const doneBudgetCheck = evaluateBudget(budget, {
+              usage: {
+                inputTokens: event.inputTokens ?? 0,
+                outputTokens: event.outputTokens ?? estimateTokensFromText(s.currentText),
+                contextTokens: 0,
+              },
+              estimated: {
+                inputTokensEstimated: event.inputTokens === undefined,
+                outputTokensEstimated: event.outputTokens === undefined,
+              },
+            })
+            if (doneBudgetCheck) {
+              return stopForBudget(doneBudgetCheck)
+            }
+
+            turnStateMachine.transition({ type: 'assistant_done' })
+
+            const hasTextContent = s.assistantContent.some((block) => block.type === 'text')
+            if (hasTextContent || s.currentThinking) {
+              if (!quiet && emitStdout) {
+                console.log('')
+              }
+
+              const finalContent: import('../../definitions/types/index.js').ContentBlock[] = []
+              if (s.currentThinking) {
+                finalContent.push({ type: 'thinking', thinking: s.currentThinking })
+              }
+              finalContent.push(...s.assistantContent)
+              state.addMessage({
+                role: 'assistant',
+                content: finalContent,
+              })
+            }
+            return 'completed'
+          },
+        })
+
+        break
+      } catch (providerError) {
+        const classified = classifyQueryError(providerError, 'provider')
+        const decision = decideRecovery(classified.errorClass, providerRecoveryAttempt)
+
+        emitRecoveryDecision(
+          {
+            source: 'provider',
+            errorClass: classified.errorClass,
+            action: decision.action,
+            attempt: providerRecoveryAttempt,
+            maxAttempts: decision.maxAttempts,
+            message: classified.message,
+          },
+          decision.action === 'retry' ? 'ok' : 'error',
+        )
+
+        if (decision.action === 'retry') {
+          tryTransition('recoverable_error')
+          await sleep(decision.backoffMs)
+          tryTransition('recovery_succeeded')
+          providerRecoveryAttempt += 1
+          continue
+        }
+
+        turnStatus = 'error'
+        errorMessage = classified.message
+
+        if (decision.event === 'retry_exhausted') {
+          tryTransition('recoverable_error')
+          tryTransition('retry_exhausted')
+        } else if (decision.event === 'fatal_error') {
+          tryTransition('fatal_error')
+        } else {
+          tryTransition(decision.event)
+        }
+
+        state.setError(errorMessage)
+        return
+      }
     }
-
-    const outcome = await consumeStreamEvents(streamIterator, consumerState, {
-      onThinkingChunk: (chunk, s) => {
-        applyThinkingChunk(s, chunk)
-        state.setThinking(s.currentThinking)
-      },
-      onTextChunk: (chunk, s) => {
-        applyTextChunk(s, chunk)
-        state.setStreamingText(s.currentText)
-        const outputBudgetCheck = evaluateBudget(budget, {
-          usage: {
-            inputTokens: 0,
-            outputTokens: estimateTokensFromText(s.currentText),
-            contextTokens: 0,
-          },
-          estimated: { outputTokensEstimated: true },
-        })
-        if (outputBudgetCheck) {
-          return stopForBudget(outputBudgetCheck)
-        }
-        if (!quiet && emitStdout) {
-          process.stdout.write(chunk)
-        }
-      },
-      onToolUseStart: (event, s) => {
-        s.currentTool = { id: event.id, name: event.name, input: {} }
-        turnStateMachine.transition({
-          type: 'tool_use_detected',
-          toolMode: state.permissionMode === 'ask' ? 'ask' : 'auto',
-        })
-        state.setStreamingText(`🔧 Tool: ${event.name}`)
-        if (!quiet && emitStdout) {
-          console.log(`\n🔧 Tool: ${event.name}`)
-        }
-      },
-      onToolInputComplete: async (event, s) => {
-        if (!s.currentTool || !s.currentTool.id) {
-          return 'completed'
-        }
-
-        s.currentTool.input = event.input
-        const result = await executeToolAndPersist({
-          store,
-          call: {
-            id: s.currentTool.id,
-            name: s.currentTool.name,
-            input: s.currentTool.input,
-          },
-          assistantContent: s.assistantContent,
-          turnStateMachine,
-        })
-
-        return result
-      },
-      onLegacyToolUse: async (event, s) => {
-        turnStateMachine.transition({
-          type: 'tool_use_detected',
-          toolMode: state.permissionMode === 'ask' ? 'ask' : 'auto',
-        })
-        if (!quiet && emitStdout) {
-          console.log(`\n🔧 Tool: ${event.name}`)
-        }
-        return executeToolAndPersist({
-          store,
-          call: { id: event.id, name: event.name, input: event.input },
-          assistantContent: s.assistantContent,
-          turnStateMachine,
-        })
-      },
-      onDone: (event, s) => {
-        const hasProviderUsage =
-          event.inputTokens !== undefined || event.outputTokens !== undefined
-
-        if (hasProviderUsage) {
-          const currentState = store.getState()
-          currentState.setTokenUsage(
-            currentState.inputTokens + (event.inputTokens ?? 0),
-            currentState.outputTokens + (event.outputTokens ?? 0),
-          )
-        }
-
-        const doneBudgetCheck = evaluateBudget(budget, {
-          usage: {
-            inputTokens: event.inputTokens ?? 0,
-            outputTokens: event.outputTokens ?? estimateTokensFromText(s.currentText),
-            contextTokens: 0,
-          },
-          estimated: {
-            inputTokensEstimated: event.inputTokens === undefined,
-            outputTokensEstimated: event.outputTokens === undefined,
-          },
-        })
-        if (doneBudgetCheck) {
-          return stopForBudget(doneBudgetCheck)
-        }
-
-        turnStateMachine.transition({ type: 'assistant_done' })
-
-        const hasTextContent = s.assistantContent.some((block) => block.type === 'text')
-        if (hasTextContent || s.currentThinking) {
-          if (!quiet && emitStdout) {
-            console.log('')
-          }
-
-          const finalContent: import('../../definitions/types/index.js').ContentBlock[] = []
-          if (s.currentThinking) {
-            finalContent.push({ type: 'thinking', thinking: s.currentThinking })
-          }
-          finalContent.push(...s.assistantContent)
-          state.addMessage({
-            role: 'assistant',
-            content: finalContent,
-          })
-        }
-        return 'completed'
-      },
-    })
 
     if (outcome === 'handoff') {
       handoffToNextTurn = true

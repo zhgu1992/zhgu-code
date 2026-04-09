@@ -76,6 +76,8 @@
 | `wip1-a` | 已补充（见 WP1-A 设计核心） | 已补充（恢复性/可观测性） | 已补充（状态/迁移/不变式） | 已补充（TSM-001~016） | 已补充（保留兼容入口、迁移失败可阻断、增量接线可回退） | In Progress |
 | `wip1-b` | 已补充（仅拆职责，不改外部行为） | 已补充（复杂度下降、可测性提升） | 已补充（runner/consumer/orchestrator 分层） | 已补充（新增 phase1_query_engine + 现有回归） | 已补充（先抽函数后迁文件，保留 legacy 入口） | Planned |
 | `wip1-c` | 已补充（token/context 回合级预算） | 已补充（从“统计指标”升级为“执行控制”） | 已补充（preflight + streaming + done 三段 guard） | 已补充（BGT-001~005） | 已补充（stop-only 策略，单点回滚 query-runner 接线） | In Progress |
+| `wip1-d` | 已补充（统一错误语义，不在 WP1-D 引入复杂自动编排） | 已补充（错误从“散落异常”升级为“状态机可判定动作”） | 已补充（`errors.ts` 分类 + `recovery.ts` 动作矩阵 + 明确 stop/retry/fatal） | 待补充（DREC-001~008） | 已补充（先保守矩阵，复杂恢复下沉至 `wip1-h`） | In Progress |
+| `wip1-h` | Phase 1 收尾硬化：只处理恢复可靠性，不引入新产品能力 | 已补充（恢复路径从“可跑”升级为“可验证稳定”） | 待讨论（错误子类、分层重试、幂等保护、恢复可观测） | 待补充（故障注入/回归门） | 已补充（非 M4 阻塞，拆分增量落地，可顺延但必须先于 Phase 2 大规模扩展） | Planned |
 
 ## 阶段完成标准（DoD）
 
@@ -303,6 +305,50 @@
   - API/Tool/Permission/Network 至少四大类错误可区分
   - 中断/重试/终止路径有明确判定规则
 
+#### WP1-D 设计核心（必须先达成共识）
+
+0. 为什么做（Why）
+- 当前错误路径主要是散落 `try/catch` 与兜底 `fatal_error`，行为可运行但不可预测，难以复盘。
+- WP1-D 的价值不是“增加更多功能”，而是把错误处理从“实现细节”升级为“可判定策略”。
+- 只有先把“错误分类 -> 恢复动作 -> 状态机事件”绑定起来，后续 transcript/trace 与稳定性门禁才有一致口径。
+
+1. 边界
+- WP1-D 只做“分类与动作绑定”，不做跨会话恢复、复杂交互式恢复、自动降级编排。
+- 任何恢复动作都必须能映射到状态机事件：`recoverable_error` / `retry_exhausted` / `fatal_error` / `permission_denied`。
+
+2. V1 错误分类与动作矩阵（保守策略）
+
+| 错误类别 | 示例 | 默认动作 | 状态机事件 |
+|---|---|---|---|
+| `permission_denied` | 用户拒绝工具执行 | 立即停止 | `permission_denied` |
+| `budget_exceeded` | context/output 超预算 | 立即停止 | `budget_exceeded` |
+| `network_transient` | 连接超时、临时网络抖动 | 进入恢复，最多重试 2 次 | `recoverable_error`，失败后 `retry_exhausted` |
+| `provider_rate_limited` | 上游限流 | 进入恢复，退避重试 1-2 次 | `recoverable_error`，失败后 `retry_exhausted` |
+| `tool_transient` | 工具临时 IO/网络失败 | 进入恢复，最多重试 1 次 | `recoverable_error`，失败后 `retry_exhausted` |
+| `non_recoverable` | 非法请求、协议/状态不一致、代码错误 | 立即终止 | `fatal_error` |
+
+3. 恢复原则
+- 默认保守：无法明确判定可恢复时，按 `non_recoverable` 处理。
+- 重试有预算：预算耗尽后统一收敛到 `retry_exhausted -> stopped(recovery_failed)`。
+- 结果可解释：每次分类和恢复决策都要产出 trace 证据（错误类别、动作、attempt）。
+
+#### WP1-D 验证说明（具体 Case）
+
+- `src/__tests__/phase1_recovery_matrix.test.ts`（WP1-D 新增，建议）
+  - `DREC-001` permission denied 分类准确并终止。
+  - `DREC-002` budget exceeded 分类准确并终止。
+  - `DREC-003` network transient 进入 recovering 并在预算内可恢复。
+  - `DREC-004` network transient 超出预算后触发 `retry_exhausted`。
+  - `DREC-005` provider rate limit 按退避重试并可收敛。
+  - `DREC-006` tool transient 只允许单次重试，失败后终止。
+  - `DREC-007` non recoverable 直接 `fatal_error`。
+  - `DREC-008` 恢复链路 trace 字段包含 `error_class/action/attempt`。
+
+#### WP1-D 建议执行命令
+
+1. `bun test src/__tests__/phase1_recovery_matrix.test.ts`
+2. `bun test src/__tests__/phase1_query_engine.test.ts`
+
 ### WP1-E：最小 Transcript 持久化与读取
 
 - 目标：session 级 jsonl transcript，支持人工回放核对
@@ -337,11 +383,30 @@
   - `bun test`
   - 20+ 轮会话稳定性检查（脚本或手动记录）
 
+### WP1-H：Recovery Hardening（Phase 1 收尾硬化）
+
+- 目标：在不扩展产品能力的前提下，提升错误恢复的可靠性与可观测性
+- 范围冻结：
+  - In Scope: 错误子类细化、分层重试策略、工具重试幂等保护、恢复链路 trace/断言补齐
+  - Out of Scope: 新 Provider 能力、跨会话自动续跑、复杂交互式恢复编排
+- 执行约束：
+  - 非 M4 阻塞：不阻塞 Phase 1 主验收与回对标结论
+  - 前置门要求：阻塞 Phase 2 大规模能力扩展（必须先完成或明确豁免）
+- 产出：
+  - `src/application/query/errors.ts`（细粒度错误分类）
+  - `src/application/query/recovery.ts`（恢复动作执行与重试预算）
+  - `src/observability/*`（恢复事件补齐）
+  - `src/__tests__/phase1_recovery_hardening.test.ts`（建议新增）
+- 验收（草案）：
+  - 可恢复错误具备按类型重试预算与终止条件
+  - 工具重试具备最小幂等保障（避免重复副作用）
+  - 恢复事件可用于回放诊断（attempt/success/fail 可追踪）
+
 ## 依赖与并行策略
 
-1. 串行主链：`WP1-A -> WP1-B -> (WP1-C, WP1-D) -> WP1-E -> WP1-F -> WP1-G`
+1. 串行主链：`WP1-A -> WP1-B -> (WP1-C, WP1-D) -> WP1-E -> WP1-F -> WP1-G -> WP1-H`
 2. 可并行项：`WP1-C` 与 `WP1-D` 可并行推进
-3. 风险控制：`WP1-E` 依赖 `WP1-B` 事件抽象稳定后再接入，避免重复改写
+3. 风险控制：`WP1-E` 依赖 `WP1-B` 事件抽象稳定后再接入，避免重复改写；`WP1-H` 采用分批增量，避免与主链交付耦合
 
 ## 里程碑
 
@@ -349,6 +414,7 @@
 2. M2（预算与恢复可控）: 完成 `WP1-C + WP1-D`
 3. M3（可回放可核对）: 完成 `WP1-E + WP1-F`
 4. M4（阶段收口）: 完成 `WP1-G` 并输出回对标报告
+5. M4+（收尾硬化，不阻塞 M4）: 推进 `WP1-H`，作为 Phase 2 扩展前置门
 
 ## 风险与回滚策略
 
