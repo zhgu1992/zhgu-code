@@ -11,6 +11,7 @@ type StoreState = AppState & AppActions
 function createMockStore(overrides: Partial<AppState> = {}) {
   return create<StoreState>((set, get) => ({
     sessionId: 'test-session',
+    traceId: 'test-trace',
     messages: [],
     cwd: process.cwd(),
     model: 'claude-sonnet-4-6',
@@ -21,6 +22,7 @@ function createMockStore(overrides: Partial<AppState> = {}) {
     thinking: null,
     error: null,
     context: null,
+    currentTurnId: null,
     pendingTool: null,
     toolProgress: null,
     inputTokens: 0,
@@ -28,6 +30,7 @@ function createMockStore(overrides: Partial<AppState> = {}) {
 
     addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
     setContext: (context) => set({ context }),
+    setCurrentTurnId: (turnId) => set({ currentTurnId: turnId }),
     clearMessages: () => set({ messages: [] }),
     startStreaming: () => set({ isStreaming: true, thinking: null }),
     stopStreaming: () => set({ isStreaming: false, thinking: null }),

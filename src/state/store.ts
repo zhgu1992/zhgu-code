@@ -2,6 +2,8 @@ import { create, type UseBoundStore, type StoreApi } from 'zustand'
 import type { Message } from '../types.js'
 import type { Context } from '../core/context.js'
 import type { PermissionMode } from '../constants.js'
+import { createSessionId, createSpanId, createTraceId } from '../observability/ids.js'
+import { getTraceBus } from '../observability/trace-bus.js'
 
 // Permission prompt types
 export interface PendingTool {
@@ -25,11 +27,14 @@ export interface ToolProgress {
 
 export interface AppState {
   // Config
+  sessionId: string
+  traceId: string
   model: string
   permissionMode: PermissionMode
   quiet: boolean
   cwd: string
   context: Context | null
+  currentTurnId: string | null
 
   // Messages
   messages: Message[]
@@ -56,6 +61,7 @@ export interface AppState {
 export interface AppActions {
   // Context
   setContext: (context: Context) => void
+  setCurrentTurnId: (turnId: string | null) => void
 
   // Messages
   addMessage: (message: Message) => void
@@ -96,14 +102,20 @@ interface CreateStoreOptions {
 
 export function createStore(options: CreateStoreOptions): AppStore {
   let messageSeq = 1
+  const sessionId = createSessionId()
+  const traceId = createTraceId()
+  const traceBus = getTraceBus()
 
   return create<StoreState>((set, get) => ({
     // Initial state
+    sessionId,
+    traceId,
     model: options.model,
     permissionMode: options.permissionMode,
     quiet: options.quiet,
     cwd: options.cwd,
     context: null,
+    currentTurnId: null,
     messages: [],
     isStreaming: false,
     streamingText: null,
@@ -116,6 +128,8 @@ export function createStore(options: CreateStoreOptions): AppStore {
 
     // Actions
     setContext: (context: Context) => set({ context }),
+
+    setCurrentTurnId: (turnId: string | null) => set({ currentTurnId: turnId }),
 
     addMessage: (message: Message) => set((state) => {
       if (message.id) {
@@ -141,21 +155,81 @@ export function createStore(options: CreateStoreOptions): AppStore {
       thinking: (state.thinking || '') + chunk,
     })),
 
-    setError: (error: string | null) => set({ error }),
+    setError: (error: string | null) => {
+      const state = get()
+      traceBus.emit({
+        stage: 'state',
+        event: 'error',
+        status: error ? 'error' : 'ok',
+        session_id: state.sessionId,
+        trace_id: state.traceId,
+        turn_id: state.currentTurnId ?? undefined,
+        span_id: createSpanId(),
+        priority: error ? 'high' : 'low',
+        payload: { message: error },
+      })
+      set({ error })
+    },
 
     // Permission prompt
-    setPendingTool: (tool) => set({ pendingTool: tool }),
+    setPendingTool: (tool) => {
+      const state = get()
+      traceBus.emit({
+        stage: 'permission',
+        event: 'prompt',
+        status: tool ? 'start' : 'ok',
+        session_id: state.sessionId,
+        trace_id: state.traceId,
+        turn_id: state.currentTurnId ?? undefined,
+        span_id: createSpanId(),
+        priority: 'normal',
+        payload: tool ? { toolName: tool.name } : undefined,
+      })
+      set({ pendingTool: tool })
+    },
 
     resolvePendingTool: (approved: boolean) => {
       const { pendingTool } = get()
       if (pendingTool) {
+        const state = get()
+        traceBus.emit({
+          stage: 'permission',
+          event: approved ? 'allow' : 'deny',
+          status: approved ? 'ok' : 'error',
+          session_id: state.sessionId,
+          trace_id: state.traceId,
+          turn_id: state.currentTurnId ?? undefined,
+          span_id: createSpanId(),
+          priority: 'normal',
+          payload: { toolName: pendingTool.name },
+        })
         pendingTool.resolve(approved)
         set({ pendingTool: null })
       }
     },
 
     // Tool progress
-    setToolProgress: (progress) => set({ toolProgress: progress }),
+    setToolProgress: (progress) => {
+      const state = get()
+      traceBus.emit({
+        stage: 'state',
+        event: 'tool_progress',
+        status: progress?.status === 'error' ? 'error' : 'info',
+        session_id: state.sessionId,
+        trace_id: state.traceId,
+        turn_id: state.currentTurnId ?? undefined,
+        span_id: createSpanId(),
+        priority: 'low',
+        payload: progress
+          ? {
+              name: progress.name,
+              status: progress.status,
+              elapsedTimeSeconds: progress.elapsedTimeSeconds,
+            }
+          : { cleared: true },
+      })
+      set({ toolProgress: progress })
+    },
 
     // Tool progress update (partial update for streaming)
     updateToolProgress: (updates: Partial<ToolProgress>) => set((state) => ({

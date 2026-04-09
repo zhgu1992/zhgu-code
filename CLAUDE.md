@@ -7,6 +7,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 这是一个基于 React/Ink 的终端 AI 编程助手 CLI，通过调用 Anthropic Claude API 实现交互式编程辅助。 
 任何能力优先参考 /Users/zhgu/Documents/claude-code-run/src 下的源码实现
 
+## 架构演进规则（必须遵守）
+
+当进行 `design.md` 中的架构演进（尤其是 Phase 级别任务）时，必须执行“原版核心模块对标机制”：
+
+1. 先分析原版 `claude-code-run/src` 对应模块（入口文件、能力边界、状态/事件模型、失败恢复）。
+2. 再在 `rewrite` 实现当前阶段目标（明确 In Scope / Out of Scope，不盲目追平原版全部复杂度）。
+3. 完成后必须回对标，输出差距结论：
+   - 已对齐项
+   - 部分对齐项
+   - 明确缺口与下一阶段补齐计划
+
+对标输出维度固定为：
+- 能力覆盖
+- 稳定性
+- 调试可见性
+- 安全边界
+- 复杂度成本
+
+每个“大模块”都要有一份对标记录；观测/追踪体系是首个样例，细节见 `design.md` 的“13/14”章节。
+
 ## 常用命令
 
 ```bash

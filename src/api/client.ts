@@ -64,11 +64,23 @@ export function createClient(): Anthropic {
   return client
 }
 
+export interface StreamLifecycleHooks {
+  onStart?: () => void
+  onFirstEvent?: () => void
+  onConnectTimeout?: () => void
+  onIdleTimeout?: () => void
+  onDone?: () => void
+  onError?: (error: unknown) => void
+}
+
 /**
  * Stream API using streaming for real-time thinking and text
  * Handles tool input streaming via input_json_delta events
  */
-export async function* stream(params: MessageParams): AsyncGenerator<StreamEvent> {
+export async function* stream(
+  params: MessageParams,
+  hooks?: StreamLifecycleHooks,
+): AsyncGenerator<StreamEvent> {
   const api = createClient()
 
   // Build request params
@@ -87,6 +99,8 @@ export async function* stream(params: MessageParams): AsyncGenerator<StreamEvent
   }
 
   try {
+    hooks?.onStart?.()
+
     // Use streaming API
     const messageStream = api.messages.stream(requestParams, {
       timeout: STREAM_REQUEST_TIMEOUT_MS,
@@ -96,6 +110,7 @@ export async function* stream(params: MessageParams): AsyncGenerator<StreamEvent
     const toolInputs: Map<number, string> = new Map()
     let doneEmitted = false
     let hasReceivedEvent = false
+    let firstEventEmitted = false
 
     const iterator = messageStream[Symbol.asyncIterator]()
 
@@ -107,12 +122,23 @@ export async function* stream(params: MessageParams): AsyncGenerator<StreamEvent
         iterator.next(),
         timeoutMs,
         hasReceivedEvent ? 'idle' : 'connection',
-        () => messageStream.abort(),
+        () => {
+          messageStream.abort()
+          if (hasReceivedEvent) {
+            hooks?.onIdleTimeout?.()
+          } else {
+            hooks?.onConnectTimeout?.()
+          }
+        },
       )
 
       if (next.done) break
 
       hasReceivedEvent = true
+      if (!firstEventEmitted) {
+        firstEventEmitted = true
+        hooks?.onFirstEvent?.()
+      }
       const event = next.value
 
       switch (event.type) {
@@ -162,6 +188,7 @@ export async function* stream(params: MessageParams): AsyncGenerator<StreamEvent
         case 'message_stop':
           // Signal completion - don't wait for finalMessage() to avoid blocking
           doneEmitted = true
+          hooks?.onDone?.()
           yield {
             type: 'done',
             inputTokens: undefined,
@@ -180,6 +207,7 @@ export async function* stream(params: MessageParams): AsyncGenerator<StreamEvent
 
     // Some non-standard providers may close stream without message_stop.
     if (!doneEmitted) {
+      hooks?.onDone?.()
       yield {
         type: 'done',
         inputTokens: undefined,
@@ -187,6 +215,7 @@ export async function* stream(params: MessageParams): AsyncGenerator<StreamEvent
       }
     }
   } catch (error) {
+    hooks?.onError?.(error)
     console.error('API Error:', error)
     throw error
   }

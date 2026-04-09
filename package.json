@@ -12,7 +12,10 @@
     "lint": "biome lint --config-path ./biome.json src/",
     "lint:fix": "biome lint --config-path ./biome.json --fix src/",
     "format": "biome format --config-path ./biome.json --write src/",
-    "test": "bun test"
+    "test": "bun test",
+    "trace:tail": "./scripts/trace-tail.sh",
+    "trace:pretty": "bun run scripts/trace-pretty.ts",
+    "trace:pretty:follow": "bun run scripts/trace-pretty.ts --follow"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.40.0",

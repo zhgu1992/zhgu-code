@@ -5,6 +5,8 @@ import { buildSystemPrompt } from './prompt.js'
 import { executeTool } from '../tools/executor.js'
 import type { Message, ContentBlock } from '../types.js'
 import type { Context } from './context.js'
+import { createSpanId, createTurnId } from '../observability/ids.js'
+import { getTraceBus } from '../observability/trace-bus.js'
 
 interface QueryOptions {
   quiet?: boolean
@@ -13,6 +15,38 @@ interface QueryOptions {
 
 export async function query(store: AppStore, options?: QueryOptions): Promise<void> {
   const state = store.getState()
+  const traceBus = getTraceBus()
+  const turnId = createTurnId()
+  const turnSpanId = createSpanId()
+  const providerSpanId = createSpanId()
+  const turnStart = Date.now()
+  let turnStatus: 'ok' | 'error' = 'ok'
+  let errorMessage: string | undefined
+  state.setCurrentTurnId(turnId)
+  traceBus.emit({
+    stage: 'turn',
+    event: 'start',
+    status: 'start',
+    session_id: state.sessionId,
+    trace_id: state.traceId,
+    turn_id: turnId,
+    span_id: turnSpanId,
+    payload: {
+      message_count: state.messages.length,
+      quiet: options?.quiet ?? state.quiet,
+    },
+  })
+  traceBus.emit({
+    stage: 'query',
+    event: 'execute_start',
+    status: 'start',
+    session_id: state.sessionId,
+    trace_id: state.traceId,
+    turn_id: turnId,
+    span_id: createSpanId(),
+    parent_span_id: turnSpanId,
+  })
+
   const tools = getTools()
   const quiet = options?.quiet ?? state.quiet
   const emitStdout = options?.emitStdout ?? true
@@ -44,6 +78,80 @@ export async function query(store: AppStore, options?: QueryOptions): Promise<vo
       system: systemPrompt,
       messages,
       tools: tools.toAPISchema(),
+    }, {
+      onStart: () => {
+        traceBus.emit({
+          stage: 'provider',
+          event: 'stream_start',
+          status: 'start',
+          session_id: state.sessionId,
+          trace_id: state.traceId,
+          turn_id: turnId,
+          span_id: providerSpanId,
+          parent_span_id: turnSpanId,
+        })
+      },
+      onFirstEvent: () => {
+        traceBus.emit({
+          stage: 'provider',
+          event: 'first_event',
+          status: 'ok',
+          session_id: state.sessionId,
+          trace_id: state.traceId,
+          turn_id: turnId,
+          span_id: providerSpanId,
+          parent_span_id: turnSpanId,
+        })
+      },
+      onConnectTimeout: () => {
+        traceBus.emit({
+          stage: 'provider',
+          event: 'connect_timeout',
+          status: 'timeout',
+          session_id: state.sessionId,
+          trace_id: state.traceId,
+          turn_id: turnId,
+          span_id: providerSpanId,
+          parent_span_id: turnSpanId,
+        })
+      },
+      onIdleTimeout: () => {
+        traceBus.emit({
+          stage: 'provider',
+          event: 'idle_timeout',
+          status: 'timeout',
+          session_id: state.sessionId,
+          trace_id: state.traceId,
+          turn_id: turnId,
+          span_id: providerSpanId,
+          parent_span_id: turnSpanId,
+        })
+      },
+      onDone: () => {
+        traceBus.emit({
+          stage: 'provider',
+          event: 'stream_end',
+          status: 'ok',
+          session_id: state.sessionId,
+          trace_id: state.traceId,
+          turn_id: turnId,
+          span_id: providerSpanId,
+          parent_span_id: turnSpanId,
+        })
+      },
+      onError: (error) => {
+        traceBus.emit({
+          stage: 'provider',
+          event: 'stream_error',
+          status: 'error',
+          session_id: state.sessionId,
+          trace_id: state.traceId,
+          turn_id: turnId,
+          span_id: providerSpanId,
+          parent_span_id: turnSpanId,
+          payload: { error: error instanceof Error ? error.message : String(error) },
+        })
+      },
     })
 
     let assistantContent: ContentBlock[] = []
@@ -195,11 +303,43 @@ export async function query(store: AppStore, options?: QueryOptions): Promise<vo
 
     state.setStreamingText(null)
   } catch (error) {
+    turnStatus = 'error'
+    errorMessage = error instanceof Error ? error.message : String(error)
     console.error('Query Error:', error)
-    state.setError(error instanceof Error ? error.message : String(error))
+    state.setError(errorMessage)
   } finally {
+    const durationMs = Date.now() - turnStart
+    traceBus.emit({
+      stage: 'query',
+      event: 'execute_end',
+      status: turnStatus,
+      session_id: state.sessionId,
+      trace_id: state.traceId,
+      turn_id: turnId,
+      span_id: createSpanId(),
+      parent_span_id: turnSpanId,
+      metrics: {
+        duration_ms: durationMs,
+      },
+      payload: turnStatus === 'error' ? { message: errorMessage } : undefined,
+    })
+    traceBus.emit({
+      stage: 'turn',
+      event: turnStatus === 'ok' ? 'end' : 'error',
+      status: turnStatus,
+      session_id: state.sessionId,
+      trace_id: state.traceId,
+      turn_id: turnId,
+      span_id: turnSpanId,
+      metrics: {
+        duration_ms: durationMs,
+      },
+      payload: turnStatus === 'error' ? { message: errorMessage } : undefined,
+    })
+
     if (!handoffToNextTurn) {
       state.stopStreaming()
+      state.setCurrentTurnId(null)
     }
   }
 }

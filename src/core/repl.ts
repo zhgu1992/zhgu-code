@@ -5,6 +5,9 @@ import { createStore, type AppStore } from '../state/store.js'
 import { buildContext } from './context.js'
 import { query } from './query.js'
 import type { PermissionMode } from '../constants.js'
+import { initializeObservability } from '../observability/bootstrap.js'
+import { createSpanId } from '../observability/ids.js'
+import { getTraceBus } from '../observability/trace-bus.js'
 
 export interface REPLOptions {
   prompt?: string
@@ -21,6 +24,22 @@ export async function startREPL(options: REPLOptions): Promise<void> {
     permissionMode: options.permissionMode,
     quiet: options.quiet,
     cwd: process.cwd(),
+  })
+  const traceFilePath = initializeObservability(store)
+  const traceBus = getTraceBus()
+  const replSpanId = createSpanId()
+  const state = store.getState()
+  traceBus.emit({
+    stage: 'ui',
+    event: 'repl_start',
+    status: 'start',
+    session_id: state.sessionId,
+    trace_id: state.traceId,
+    span_id: replSpanId,
+    payload: {
+      mode: options.prompt || options.pipeMode ? 'single' : 'interactive',
+      trace_file: traceFilePath,
+    },
   })
 
   // Build initial context
@@ -39,6 +58,15 @@ export async function startREPL(options: REPLOptions): Promise<void> {
   )
 
   await waitUntilExit()
+  const endState = store.getState()
+  traceBus.emit({
+    stage: 'ui',
+    event: 'repl_end',
+    status: 'ok',
+    session_id: endState.sessionId,
+    trace_id: endState.traceId,
+    span_id: replSpanId,
+  })
 }
 
 async function runSingleQuery(

@@ -158,73 +158,24 @@ Phase 0 建议交付物清单：
 - `rewrite/src/architecture/contracts/*.ts`
 - `rewrite/tsconfig` 与 lint/test 脚本的最小修复
 
-### Phase 0.1：链路追踪与可观测性基线（防“无反馈卡住”）
-目标：在不重写业务逻辑前提下，先建立可追踪、可回放、可判定的最小观测链路。
+### Phase 0.1：链路追踪与可观测性基线（已完成，2026-04-09）
+归档摘要：本阶段已完成最小观测链路建设，目标是“可追踪、可回放、可判定”且不改主业务路径。已落地统一 Trace 事件模型、进程内异步 Trace Bus、JSONL+Console 双 Sink、sidecar 观测窗口，以及 turn/tool/provider/orphan-span 四类链路断言规则。当前基线可在卡住/超时场景中快速定位具体阶段。
 
-1. 定义统一 Trace 事件模型（`session_id/trace_id/turn_id/span_id/stage/event/status/metrics/payload`）
-2. 建立进程内 Trace Bus（异步、非阻塞），统一接入 `ui/query/provider/tool/state/permission`
-3. 落地双 Sink：
-- `trace.jsonl`（结构化落盘，支持回放与比对）
-- 控制台实时摘要（主窗口只显示关键状态）
-4. 支持 sidecar 观测窗口（推荐 `tail -f trace.jsonl`），用于查看完整链路细节
-5. 增加最小链路断言规则：
-- 每个 `turn.start` 必有 `turn.end|turn.error`
-- 每个 `tool.call.start` 必有 `tool.call.end|tool.call.error`
-- `provider.stream.start` 后必须出现 `first_event|connect_timeout`
-- 禁止孤儿 span（有子事件无父事件）
-6. 增加安全与性能边界：
-- 敏感字段脱敏（token/key/header）
-- 大 payload 截断与 hash
-- Trace 队列满时丢弃低优先级事件，避免阻塞主链路
-
-范围（In Scope）：
-- 只做观测能力与调试视图，不改变主业务路径
-- 覆盖 REPL 主链路：输入 -> query -> provider stream -> tool -> 回写 -> 输出
-- 输出“链路是否符合预期”的最小自动判定结果
-
-非目标（Out of Scope）：
-- 不引入完整遥测平台（OTLP/Prometheus/Grafana）
-- 不做可视化 Web 控制台
-- 不重构 Query/Tool Runtime 的核心实现
-
-执行工作包（Work Packages）：
-
-1. `WP0.1-A` 事件模型冻结
-- 产出：`docs/trace-model.md` + TypeScript 事件类型定义
-- 验收：关键阶段事件字段完整且可扩展
-
-2. `WP0.1-B` Trace Bus 与埋点接入
-- 产出：`src/observability/trace-bus.ts` + 关键路径埋点
-- 验收：一次完整请求可串起全链路事件
-
-3. `WP0.1-C` Sink 与 sidecar 观测
-- 产出：JSONL sink + console sink + `scripts/trace-tail.sh`
-- 验收：第二终端可实时查看完整链路，不影响主交互
-
-4. `WP0.1-D` 链路断言与失败报告
-- 产出：trace assertions 校验器
-- 验收：能输出“通过/失败 + 缺失事件清单”
-
-5. `WP0.1-E` 使用手册与回归用例
-- 产出：README 调试章节 + 1 个“连接超时”与 1 个“工具调用”示例回放
-- 验收：新同学可按文档复现并定位问题
-
-Phase 0.1 里程碑与 DoD：
-
-1. M0（事件可追踪）
-- 从用户输入到最终输出，每个关键阶段均有结构化事件
-
-2. M1（问题可定位）
-- 出现卡住/超时时，能在 1 分钟内定位到具体阶段（连接、流、工具、回写）
-
-3. M2（链路可验收）
-- 断言规则可自动判定一次请求是否符合预期
-
-Phase 0.1 建议交付物清单：
+Phase 0.1 关键产物：
 - `rewrite/docs/trace-model.md`
 - `rewrite/src/observability/*`
 - `rewrite/scripts/trace-tail.sh`
-- `rewrite/readme.md`（调试与验收流程补充）
+- `rewrite/src/__tests__/phase0_1_observability.test.ts`
+
+Phase 0.1 最小验收命令：
+1. `bun run dev --prompt "hello"`（生成 `./.trace/trace.jsonl`）
+2. `./scripts/trace-tail.sh`（sidecar 实时观测）
+3. `bun test src/__tests__/phase0_1_observability.test.ts`（链路断言回放）
+4. `bun run trace:pretty .trace/trace.jsonl`（人类可读时间线）
+
+更多实现与对标细节：
+- `rewrite/design.md` 第 13/14 节（原版模块对标机制与观测模块示例）
+- `rewrite/docs/trace-model.md`（事件模型与断言规范）
 
 ### Phase 1：Query Engine v2（主脑平面）
 目标：让核心对话引擎从“可跑”升级为“可持续”。
@@ -233,10 +184,22 @@ Phase 0.1 建议交付物清单：
 2. 引入 token/context budget 与自动续写策略
 3. 引入 compact/collapse 插件点（先 stub，再实现）
 4. 统一错误分类与恢复路径（API/Tool/Permission/Network）
+5. 落地最小 transcript（session 级 jsonl 持久化）：
+- 记录每个 turn 的 user/assistant 最终可见内容
+- 记录 `tool_use` / `tool_result` 关联关系
+- 提供最小读取与回放能力（用于人工验收与调试）
 
 完成标准：
 - 连续 20+ 轮对话不失稳
 - 中断/恢复/重试路径可测试
+- 每轮可在 transcript 中复原“输入 -> 工具 -> 输出”主链路
+
+Phase 1 实施建议（新增）：
+1. 先实现 turn 状态机主线（状态定义、迁移表、异常/中断路径），优先稳定控制面。
+2. 在 Phase 1 内边实现边细化设计，把关键决策同步回 `design.md`/ADR，避免一次性过度设计。
+3. 状态机主线稳定后，立即接入最小 transcript；先保证“可复原与可核对”，再迭代高级治理能力。
+4. transcript 落地后，将 Phase 0.1 trace 事件语义对齐到状态迁移点（迁移即事件），再优化断言规则。
+5. Phase 1 收尾时执行一次“与原版 Query/Tracing/Transcript 的回对标”，输出：已对齐项、缺口项、下一步补齐计划。
 
 ### Phase 2：Execution & Permission Plane（执行安全平面）
 目标：把工具执行从“调用”升级到“治理”。
@@ -286,8 +249,8 @@ Phase 0.1 建议交付物清单：
 ## 6) 建议的近期执行顺序（你下一步就做这个）
 
 1. 先做 Phase 0（ADR + 目录/接口冻结），不要直接补零散功能。  
-2. 紧接做 Phase 0.1（链路追踪基线），先把“可观测与可定位”补齐。  
-3. 再进入 Phase 1（Query Engine v2），这是所有后续能力的“主依赖”。  
+2. Phase 0.1 已完成（链路追踪基线），当前保持稳定并随 Phase 1 语义对齐。  
+3. 进入 Phase 1（Query Engine v2），这是所有后续能力的“主依赖”。  
 4. 再做 Phase 2（执行与权限平面），确保能力扩展前先守住风险。  
 5. 最后并行推进 Phase 3/4（集成面 + 编排面），形成平台能力闭环。  
 
