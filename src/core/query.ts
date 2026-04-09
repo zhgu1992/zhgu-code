@@ -60,7 +60,7 @@ export async function query(store: AppStore, options?: QueryOptions): Promise<vo
 
         case 'text':
           currentText += event.text
-          assistantContent.push({ type: 'text', text: event.text })
+          appendTextDelta(assistantContent, event.text)
           // Update streaming text in state for UI to display
           state.setStreamingText(currentText)
           // Also output to stdout for pipe mode
@@ -209,4 +209,18 @@ function formatMessageForAPI(message: Message) {
     role: message.role,
     content: message.content,
   }
+}
+
+export function appendTextDelta(content: ContentBlock[], textDelta: string): void {
+  if (!textDelta) {
+    return
+  }
+
+  const lastBlock = content[content.length - 1]
+  if (lastBlock?.type === 'text') {
+    lastBlock.text += textDelta
+    return
+  }
+
+  content.push({ type: 'text', text: textDelta })
 }
