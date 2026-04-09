@@ -18,3 +18,21 @@
 - `Status`: `Not Started` | `In Progress` | `Blocked` | `Done`
 - `Updated`: `YYYY-MM-DD`
 - 每个 Phase 文档需包含：目标、范围、任务、验收标准、风险与阻塞
+
+## 大 Phase 对标规范（必须）
+
+每个大 Phase 开发前必须先完成“源码对标结论”，并写入对应 `phase-*/README.md`。
+
+固定顺序：
+
+1. `claude-code-run/src` 源码事实（主依据）
+2. `rewrite/src` 当前实现（现状）
+3. `rewrite/knowledge/**`（背景补充）
+
+固定输出字段：
+
+1. 对标范围（本 Phase 涉及模块）
+2. 已对齐项
+3. 差异项：能力覆盖、稳定性、可观测性、安全边界、复杂度
+4. In Scope / Out of Scope
+5. 参考证据（至少列出关键源码路径）

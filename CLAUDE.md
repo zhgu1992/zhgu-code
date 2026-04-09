@@ -27,6 +27,55 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 每个“大模块”都要有一份对标记录；观测/追踪体系是首个样例，细节见 `docs/architecture/system-design.md` 的“13/14”章节。
 
+## 文档-开发联动规则（必须遵守）
+
+目标：确保后续开发始终和文档体系同步，不再出现“代码在前、文档滞后”。
+
+1. 文档单一真相源（source of truth）
+- 总导航：`docs/README.md`
+- 架构事实：`docs/architecture/system-design.md`
+- 路线图总览：`docs/roadmap/master-roadmap.md`
+- 分阶段执行：`docs/roadmap/phase-*/README.md`
+- 架构决策：`docs/adr/*.md`
+
+2. 代码变更时的同步要求
+- 如果改动影响当前 Phase 目标、范围、进度或验收：必须同步更新对应 `docs/roadmap/phase-*/README.md`。
+- 如果改动改变系统边界、模块职责、数据流、状态机或跨层依赖：必须同步更新 `docs/architecture/system-design.md`。
+- 如果改动属于“架构决策”（不是普通实现细节）：必须新增或更新对应 ADR。
+
+3. Phase 执行约束
+- 开始一个任务前，先确认当前目标 Phase（默认以 `docs/roadmap/README.md` 为入口）。
+- 交付完成后，至少更新：`Status`、`Updated`、完成项、阻塞项（如有）。
+- 若出现范围漂移（scope creep），先写入 Phase 文档再继续实现。
+
+4. ADR 触发条件（任一命中即触发）
+- 新增或替换核心接口契约（如 `IQueryEngine` / `IToolRuntime` / `IProvider` / `IOrchestrator`）。
+- 改变权限模型、执行安全边界、集成协议、编排状态机。
+- 引入会显著影响复杂度或可维护性的基础设施机制（如持久化、回放、重试策略框架）。
+
+5. 提交前自检（轻量）
+- 文档链接是否仍然有效（尤其是 `README.md` 与 `docs/` 引用）。
+- 代码改动是否映射到对应 Phase 文档。
+- 架构变更是否已有 ADR 记录。
+
+## 大 Phase 启动前对标门禁（必须遵守）
+
+目标：避免“只看知识文档就开工”导致与真实源码实现脱节。
+
+1. 每个大 Phase 开发前，必须先对标 `claude-code-run/src` 对应模块源码，再开始实现。
+- 对标顺序固定：`src` 源码事实 -> `rewrite` 当前实现 -> `knowledge` 文档补充。
+- 禁止仅基于 `rewrite/knowledge/**` 直接做架构判断或实现决策。
+
+2. 必须输出“对标结论”并写入对应 Phase 文档（`docs/roadmap/phase-*/README.md`）。
+- 已对齐项
+- 差异项（能力/稳定性/可观测性/安全边界/复杂度）
+- 本阶段取舍（In Scope / Out of Scope）
+
+3. `knowledge` 使用边界
+- `rewrite/knowledge/claude-code-run/docs` 与 `learn`：用于理解背景、概念和历史方案。
+- `rewrite/knowledge/claude-code-run/root-docs`：用于历史上下文与说明参考。
+- 涉及接口签名、状态机细节、执行路径、异常处理时：以 `claude-code-run/src` 真实代码为准。
+
 ## 常用命令
 
 ```bash
