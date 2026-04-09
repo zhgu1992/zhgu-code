@@ -1,4 +1,4 @@
-import type { MessageParams, StreamEvent } from '../../types.js'
+import type { MessageParams, StreamEvent } from '../../definitions/types/index.js'
 
 export interface ProviderHealth {
   status: 'healthy' | 'degraded' | 'down' | 'unknown'

@@ -1,5 +1,5 @@
 import * as readline from 'readline'
-import type { Tool } from '../types.js'
+import type { Tool } from '../definitions/types/index.js'
 
 interface QuestionOption {
   label: string

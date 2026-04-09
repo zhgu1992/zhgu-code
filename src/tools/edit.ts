@@ -1,5 +1,5 @@
 import * as fs from 'fs'
-import type { Tool } from '../types.js'
+import type { Tool } from '../definitions/types/index.js'
 
 interface EditInput {
   file_path: string

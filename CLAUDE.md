@@ -102,8 +102,8 @@ bun run format
 
 ## 类型定义
 
-- **`src/types.ts`** → 核心类型定义（`Message`、`ContentBlock`、`Tool` 等）
-- **`src/constants.ts`** → 常量定义
+- **`src/definitions/types/`** → 核心类型定义（`Message`、`ContentBlock`、`Tool`、`PermissionMode` 等）
+- **`src/definitions/constants/`** → 常量定义（应用常量、退出码、UI Spinner 常量）
 
 ## 技术栈
 

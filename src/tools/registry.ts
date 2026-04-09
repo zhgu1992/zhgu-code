@@ -1,4 +1,4 @@
-import type { Tool } from '../types.js'
+import type { Tool } from '../definitions/types/index.js'
 import { BashTool } from './bash.js'
 import { ReadTool } from './read.js'
 import { WriteTool } from './write.js'

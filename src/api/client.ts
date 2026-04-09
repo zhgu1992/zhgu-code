@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
-import type { StreamEvent, MessageParams } from '../types.js'
+import type { StreamEvent, MessageParams } from '../definitions/types/index.js'
 import { getAPIConfig } from '../services/config.js'
 
 let client: Anthropic | null = null

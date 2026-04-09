@@ -1,6 +1,6 @@
 import { Command } from 'commander'
 import { startREPL } from '../core/repl.js'
-import { VERSION } from '../constants.js'
+import { VERSION } from '../definitions/constants/index.js'
 import { getAPIConfig } from '../services/config.js'
 
 export const program = new Command()

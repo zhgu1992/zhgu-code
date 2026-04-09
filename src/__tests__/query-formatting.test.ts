@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { appendTextDelta } from '../core/query.js'
-import type { ContentBlock } from '../types.js'
+import type { ContentBlock } from '../definitions/types/index.js'
 
 describe('query formatting', () => {
   test('should merge continuous text deltas into a single text block', () => {

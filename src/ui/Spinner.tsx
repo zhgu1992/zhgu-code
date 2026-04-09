@@ -7,7 +7,7 @@ import {
   SPINNER_FRAMES,
   STALL_THRESHOLD_MS,
   STALL_FADE_DURATION_MS,
-} from '../constants/spinnerVerbs.js'
+} from '../definitions/constants/ui-spinner.js'
 
 interface SpinnerProps {
   store: AppStore

@@ -6,7 +6,7 @@
 
 ## 1. 系统目标与边界
 
-`rewrite` 是一个精简版 AI Coding CLI，目标是先提供可运行的主闭环：
+`rewrite` 是一个精简版 AI Coding CLI，目标是超越claudecode，打造最强coding cli：
 
 1. 用户输入提示词
 2. 模型流式返回文本/思考/工具调用
@@ -35,8 +35,9 @@ src/
 ├── state/               # Zustand Store
 ├── ui/                  # Ink 界面组件
 ├── services/            # 配置读取（目前仅 config）
-├── types.ts             # 跨模块核心类型
-└── constants.ts         # 常量与模式定义
+└── definitions/         # 跨模块定义
+    ├── types/           # 核心类型（Message/Tool/PermissionMode 等）
+    └── constants/       # 常量（app/exit-codes/ui-spinner）
 ```
 
 模块依赖方向（当前约束）：
@@ -46,7 +47,7 @@ entrypoint -> cli -> core(repl/query)
 core -> api + tools + state + core(context/prompt)
 application -> core + architecture/contracts
 platform -> api + architecture/contracts
-tools -> state(可选, 用于进度) + types
+tools -> state(可选, 用于进度) + definitions/types
 ui -> state + core(query)
 services(config) -> api/cli
 ```

@@ -1,6 +1,6 @@
 import type { AppStore } from '../state/store.js'
 import { getTools } from './registry.js'
-import type { ToolContext } from '../types.js'
+import type { ToolContext } from '../definitions/types/index.js'
 import { createSpanId } from '../observability/ids.js'
 import { getTraceBus } from '../observability/trace-bus.js'
 

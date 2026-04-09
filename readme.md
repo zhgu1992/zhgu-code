@@ -164,6 +164,7 @@ Phase 0 建议交付物清单：
 Phase 0.1 关键产物：
 - `rewrite/docs/trace-model.md`
 - `rewrite/src/observability/*`
+- `rewrite/src/observability/README.md`（模块速览与接入说明）
 - `rewrite/scripts/trace-tail.sh`
 - `rewrite/src/__tests__/phase0_1_observability.test.ts`
 

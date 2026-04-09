@@ -1,7 +1,7 @@
 import { create, type UseBoundStore, type StoreApi } from 'zustand'
-import type { Message } from '../types.js'
+import type { Message } from '../definitions/types/index.js'
 import type { Context } from '../core/context.js'
-import type { PermissionMode } from '../constants.js'
+import type { PermissionMode } from '../definitions/types/permission.js'
 import { createSessionId, createSpanId, createTraceId } from '../observability/ids.js'
 import { getTraceBus } from '../observability/trace-bus.js'
 

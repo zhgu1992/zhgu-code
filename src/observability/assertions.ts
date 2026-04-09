@@ -8,6 +8,8 @@ export interface TraceAssertionReport {
 export function validateTraceEvents(events: TraceEvent[]): TraceAssertionReport {
   const failures: string[] = []
 
+  // Core replay invariants. If any of them fail, traces are incomplete
+  // or inconsistent for debugging/forensics.
   assertTurnLifecycle(events, failures)
   assertToolLifecycle(events, failures)
   assertProviderFirstEvent(events, failures)

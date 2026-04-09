@@ -27,6 +27,8 @@ class TraceBus {
       payload: sanitizePayload(envelope.payload),
     }
 
+    // Bounded queue: protect main flow under bursts.
+    // Policy: drop low priority first; otherwise evict oldest.
     if (this.queue.length >= TRACE_QUEUE_MAX) {
       const dropCurrent = envelope.priority === 'low'
       if (dropCurrent) {
@@ -53,6 +55,7 @@ class TraceBus {
     this.queue.push(event)
     if (!this.draining) {
       this.draining = true
+      // Drain asynchronously so emit() stays non-blocking.
       queueMicrotask(() => {
         void this.drain()
       })
@@ -70,7 +73,7 @@ class TraceBus {
       try {
         await Promise.all(sinkTasks)
       } catch {
-        // Swallow sink errors to avoid affecting main execution flow.
+        // Never let observability failures break user-visible execution.
       }
     }
     this.draining = false

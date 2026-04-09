@@ -1,6 +1,6 @@
 import { stream as anthropicStream } from '../../api/client.js'
 import type { IProvider, ProviderHealth } from '../../architecture/contracts/provider.js'
-import type { MessageParams, StreamEvent } from '../../types.js'
+import type { MessageParams, StreamEvent } from '../../definitions/types/index.js'
 
 export const anthropicProvider: IProvider = {
   name: 'anthropic',

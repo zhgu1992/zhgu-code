@@ -1,4 +1,4 @@
-import type { Tool } from '../types.js'
+import type { Tool } from '../definitions/types/index.js'
 
 interface WebSearchInput {
   query: string

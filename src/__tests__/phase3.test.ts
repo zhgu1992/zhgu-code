@@ -3,7 +3,7 @@ import { create } from 'zustand'
 import { getTools } from '../tools/registry.js'
 import { executeTool } from '../tools/executor.js'
 import type { AppState, AppActions, PendingTool, ToolProgress } from '../state/store.js'
-import type { PermissionMode } from '../constants.js'
+import type { PermissionMode } from '../definitions/types/permission.js'
 
 type StoreState = AppState & AppActions
 

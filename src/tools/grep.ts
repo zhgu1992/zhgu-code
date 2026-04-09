@@ -1,6 +1,6 @@
 import * as fs from 'fs'
 import * as path from 'path'
-import type { Tool } from '../types.js'
+import type { Tool } from '../definitions/types/index.js'
 
 interface GrepInput {
   pattern: string

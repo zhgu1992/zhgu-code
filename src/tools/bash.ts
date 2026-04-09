@@ -1,5 +1,5 @@
 import { spawn } from 'child_process'
-import type { Tool, ToolContext } from '../types.js'
+import type { Tool, ToolContext } from '../definitions/types/index.js'
 import type { AppStore } from '../state/store.js'
 import { statSync } from 'fs'
 
