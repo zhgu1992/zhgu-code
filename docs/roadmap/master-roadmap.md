@@ -3,7 +3,10 @@
 > 更新时间：2026-04-09  
 > 评估方式：`codebase-onboarding + blueprint + verification-loop`  
 > 目标：先完成“大架构与大能力”，再逐步补细节
-> 核心架构设计和演进见 design.md
+> 核心架构设计和演进见 `docs/architecture/system-design.md`
+
+> 说明：本文件是全局路线图总览。  
+> 分阶段执行细节见 `docs/roadmap/phase-*/README.md`。
 
 ## 1) 架构基线对比（大模块）
 
@@ -78,7 +81,7 @@
 #### Phase 0 详细实施计划（可直接执行）
 
 当前状态（2026-04-09）：
-- `WP0-A` 完成（`design.md` 已校准为当前事实口径）
+- `WP0-A` 完成（`docs/architecture/system-design.md` 已校准为当前事实口径）
 - `WP0-B` 完成（4 份 ADR 已落地）
 - `WP0-C` 完成（4 个核心接口已在 `src/architecture/contracts/` 冻结）
 - `WP0-D` 完成（`src/application/` 与 `src/platform/` 已建立过渡骨架）
@@ -97,7 +100,7 @@
 执行工作包（Work Packages）：
 
 1. `WP0-A` 架构现状快照
-- 产出：`design.md` 校准为当前事实（模块边界、数据流、状态面）
+- 产出：`docs/architecture/system-design.md` 校准为当前事实（模块边界、数据流、状态面）
 - 验收：文档可映射到 `src` 的每个核心目录，不含“未来实现描述”
 
 2. `WP0-B` 四个 ADR 落地
@@ -140,7 +143,7 @@ Phase 0 里程碑与 DoD：
 
 1. M0（架构冻结）
 - 4 个 ADR 评审通过
-- `design.md` 与 `readme.md` 架构口径一致
+- `docs/architecture/system-design.md` 与 `docs/roadmap/master-roadmap.md` 口径一致
 
 2. M1（契约冻结）
 - 4 个核心接口签名冻结
@@ -152,8 +155,8 @@ Phase 0 里程碑与 DoD：
 - `bun test` 通过或有明确 skip 策略
 
 Phase 0 建议交付物清单：
-- `rewrite/design.md`（当前事实）
-- `rewrite/readme.md`（路线与门禁）
+- `rewrite/docs/architecture/system-design.md`（当前事实）
+- `rewrite/docs/roadmap/master-roadmap.md`（路线与门禁）
 - `rewrite/docs/adr/ADR-001..004`
 - `rewrite/src/architecture/contracts/*.ts`
 - `rewrite/tsconfig` 与 lint/test 脚本的最小修复
@@ -175,7 +178,7 @@ Phase 0.1 最小验收命令：
 4. `bun run trace:pretty .trace/trace.jsonl`（人类可读时间线）
 
 更多实现与对标细节：
-- `rewrite/design.md` 第 13/14 节（原版模块对标机制与观测模块示例）
+- `rewrite/docs/architecture/system-design.md` 第 13/14 节（原版模块对标机制与观测模块示例）
 - `rewrite/docs/trace-model.md`（事件模型与断言规范）
 
 ### Phase 1：Query Engine v2（主脑平面）
@@ -197,7 +200,7 @@ Phase 0.1 最小验收命令：
 
 Phase 1 实施建议（新增）：
 1. 先实现 turn 状态机主线（状态定义、迁移表、异常/中断路径），优先稳定控制面。
-2. 在 Phase 1 内边实现边细化设计，把关键决策同步回 `design.md`/ADR，避免一次性过度设计。
+2. 在 Phase 1 内边实现边细化设计，把关键决策同步回 `docs/architecture/system-design.md`/ADR，避免一次性过度设计。
 3. 状态机主线稳定后，立即接入最小 transcript；先保证“可复原与可核对”，再迭代高级治理能力。
 4. transcript 落地后，将 Phase 0.1 trace 事件语义对齐到状态迁移点（迁移即事件），再优化断言规则。
 5. Phase 1 收尾时执行一次“与原版 Query/Tracing/Transcript 的回对标”，输出：已对齐项、缺口项、下一步补齐计划。
