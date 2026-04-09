@@ -12,7 +12,7 @@ export type StreamConsumerOutcome = 'completed' | 'handoff' | 'stopped'
 
 export interface StreamConsumerHandlers {
   onThinkingChunk: (chunk: string, state: StreamConsumerState) => void
-  onTextChunk: (chunk: string, state: StreamConsumerState) => void
+  onTextChunk: (chunk: string, state: StreamConsumerState) => StreamConsumerOutcome | void
   onToolUseStart: (
     event: Extract<StreamEvent, { type: 'tool_use_start' }>,
     state: StreamConsumerState,
@@ -25,7 +25,10 @@ export interface StreamConsumerHandlers {
     event: Extract<StreamEvent, { type: 'tool_use' }>,
     state: StreamConsumerState,
   ) => Promise<StreamConsumerOutcome>
-  onDone: (event: Extract<StreamEvent, { type: 'done' }>, state: StreamConsumerState) => void
+  onDone: (
+    event: Extract<StreamEvent, { type: 'done' }>,
+    state: StreamConsumerState,
+  ) => StreamConsumerOutcome | void
 }
 
 export async function consumeStreamEvents(
@@ -40,7 +43,12 @@ export async function consumeStreamEvents(
         break
 
       case 'text':
-        handlers.onTextChunk(event.text, consumerState)
+        {
+          const outcome = handlers.onTextChunk(event.text, consumerState)
+          if (outcome === 'handoff' || outcome === 'stopped') {
+            return outcome
+          }
+        }
         break
 
       case 'tool_use_start':
@@ -64,7 +72,12 @@ export async function consumeStreamEvents(
       }
 
       case 'done':
-        handlers.onDone(event, consumerState)
+        {
+          const outcome = handlers.onDone(event, consumerState)
+          if (outcome === 'handoff' || outcome === 'stopped') {
+            return outcome
+          }
+        }
         break
 
       case 'tool_start':

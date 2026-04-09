@@ -13,6 +13,13 @@ import {
 } from './turn-state.js'
 import { consumeStreamEvents, applyTextChunk, applyThinkingChunk } from './stream-consumer.js'
 import { executeToolAndPersist } from './tool-orchestrator.js'
+import {
+  estimateContextTokens,
+  estimateTokensFromText,
+  evaluateBudget,
+  formatBudgetExceededMessage,
+  type BudgetExceeded,
+} from './budget.js'
 
 export async function runQuery(store: AppStore, options?: QueryOptions): Promise<void> {
   const state = store.getState()
@@ -25,6 +32,7 @@ export async function runQuery(store: AppStore, options?: QueryOptions): Promise
   let turnStatus: 'ok' | 'error' = 'ok'
   let errorMessage: string | undefined
   let handoffToNextTurn = false
+  let budgetStopped = false
 
   const turnStateMachine = createTurnStateMachine({
     onTransition: (transition) => {
@@ -47,6 +55,57 @@ export async function runQuery(store: AppStore, options?: QueryOptions): Promise
   const emitStdout = options?.emitStdout ?? true
   const messages = state.messages.map(formatMessageForAPI)
   const systemPrompt = buildSystemPrompt(resolveContext(state.context, state.cwd))
+  const budget = options?.budget
+
+  const stopForBudget = (exceeded: BudgetExceeded): 'stopped' => {
+    if (budgetStopped) {
+      return 'stopped'
+    }
+    budgetStopped = true
+    turnStatus = 'error'
+    errorMessage = formatBudgetExceededMessage(exceeded)
+
+    traceBus.emit({
+      stage: 'query',
+      event: 'budget_exceeded',
+      status: 'error',
+      session_id: state.sessionId,
+      trace_id: state.traceId,
+      turn_id: turnId,
+      span_id: createSpanId(),
+      parent_span_id: turnSpanId,
+      payload: {
+        metric: exceeded.metric,
+        limit: exceeded.limit,
+        actual: exceeded.actual,
+        estimated: exceeded.estimated,
+      },
+    })
+
+    try {
+      turnStateMachine.transition({ type: 'budget_exceeded' })
+    } catch (transitionError) {
+      if (!(transitionError instanceof IllegalTurnTransitionError)) {
+        throw transitionError
+      }
+    }
+
+    state.setError(errorMessage)
+    return 'stopped'
+  }
+
+  const contextBudgetCheck = evaluateBudget(budget, {
+    usage: {
+      inputTokens: 0,
+      outputTokens: 0,
+      contextTokens: estimateContextTokens(systemPrompt, state.messages),
+    },
+    estimated: { contextTokensEstimated: true },
+  })
+  if (contextBudgetCheck) {
+    stopForBudget(contextBudgetCheck)
+    return
+  }
 
   state.setStreamingText('Connecting...')
   state.setThinking(null)
@@ -86,6 +145,17 @@ export async function runQuery(store: AppStore, options?: QueryOptions): Promise
       onTextChunk: (chunk, s) => {
         applyTextChunk(s, chunk)
         state.setStreamingText(s.currentText)
+        const outputBudgetCheck = evaluateBudget(budget, {
+          usage: {
+            inputTokens: 0,
+            outputTokens: estimateTokensFromText(s.currentText),
+            contextTokens: 0,
+          },
+          estimated: { outputTokensEstimated: true },
+        })
+        if (outputBudgetCheck) {
+          return stopForBudget(outputBudgetCheck)
+        }
         if (!quiet && emitStdout) {
           process.stdout.write(chunk)
         }
@@ -136,15 +206,33 @@ export async function runQuery(store: AppStore, options?: QueryOptions): Promise
         })
       },
       onDone: (event, s) => {
-        turnStateMachine.transition({ type: 'assistant_done' })
+        const hasProviderUsage =
+          event.inputTokens !== undefined || event.outputTokens !== undefined
 
-        if (event.inputTokens || event.outputTokens) {
+        if (hasProviderUsage) {
           const currentState = store.getState()
           currentState.setTokenUsage(
-            currentState.inputTokens + (event.inputTokens || 0),
-            currentState.outputTokens + (event.outputTokens || 0),
+            currentState.inputTokens + (event.inputTokens ?? 0),
+            currentState.outputTokens + (event.outputTokens ?? 0),
           )
         }
+
+        const doneBudgetCheck = evaluateBudget(budget, {
+          usage: {
+            inputTokens: event.inputTokens ?? 0,
+            outputTokens: event.outputTokens ?? estimateTokensFromText(s.currentText),
+            contextTokens: 0,
+          },
+          estimated: {
+            inputTokensEstimated: event.inputTokens === undefined,
+            outputTokensEstimated: event.outputTokens === undefined,
+          },
+        })
+        if (doneBudgetCheck) {
+          return stopForBudget(doneBudgetCheck)
+        }
+
+        turnStateMachine.transition({ type: 'assistant_done' })
 
         const hasTextContent = s.assistantContent.some((block) => block.type === 'text')
         if (hasTextContent || s.currentThinking) {
@@ -162,6 +250,7 @@ export async function runQuery(store: AppStore, options?: QueryOptions): Promise
             content: finalContent,
           })
         }
+        return 'completed'
       },
     })
 

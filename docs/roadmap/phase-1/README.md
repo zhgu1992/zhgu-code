@@ -75,6 +75,7 @@
 |---|---|---|---|---|---|---|
 | `wip1-a` | 已补充（见 WP1-A 设计核心） | 已补充（恢复性/可观测性） | 已补充（状态/迁移/不变式） | 已补充（TSM-001~016） | 已补充（保留兼容入口、迁移失败可阻断、增量接线可回退） | In Progress |
 | `wip1-b` | 已补充（仅拆职责，不改外部行为） | 已补充（复杂度下降、可测性提升） | 已补充（runner/consumer/orchestrator 分层） | 已补充（新增 phase1_query_engine + 现有回归） | 已补充（先抽函数后迁文件，保留 legacy 入口） | Planned |
+| `wip1-c` | 已补充（token/context 回合级预算） | 已补充（从“统计指标”升级为“执行控制”） | 已补充（preflight + streaming + done 三段 guard） | 已补充（BGT-001~005） | 已补充（stop-only 策略，单点回滚 query-runner 接线） | In Progress |
 
 ## 阶段完成标准（DoD）
 
@@ -259,10 +260,37 @@
 - 产出：
   - `src/application/query/budget.ts`
   - `QueryOptions.budget` 实际接线
-  - 超预算处理策略（截断、提醒、停止其一或组合）
+  - 超预算处理策略（当前为 `stop-only`）
 - 验收：
   - 预算边界可测试
-  - 超预算行为可预测且可观测（有 trace/transcript 记录）
+  - 超预算行为可预测且可观测（有 trace 记录）
+
+#### WP1-C 设计核心（已实现）
+
+1. Guard 插入点
+   - preflight：在 provider stream 启动前检查 `maxContextTokens`（估算）。
+   - streaming：每次 `text` chunk 后检查 `maxOutputTokens`（估算）。
+   - done：收到 provider `done` 后检查 `maxInputTokens/maxOutputTokens`（优先用 provider tokens，无则估算）。
+2. 统一停止动作
+   - 触发状态迁移：`budget_exceeded -> stopped(budget_exceeded)`。
+   - 设置用户可见错误：`Budget exceeded: ...`。
+   - 记录 trace：`stage=query,event=budget_exceeded`，附带 `metric/limit/actual/estimated`。
+3. 首版策略约束
+   - 仅做 stop-only，不做自动截断与重试，避免在 WP1-C 引入多分支行为不确定性。
+
+#### WP1-C 验证说明（具体 Case）
+
+- `src/__tests__/phase1_budget_guard.test.ts`
+  - `BGT-001` budget 未配置时不触发拦截。
+  - `BGT-002` `maxContextTokens` 可触发超预算。
+  - `BGT-003` `maxOutputTokens` 超限时错误文案可预测。
+  - `BGT-004` `onTextChunk` 返回 `stopped` 时主循环可提前停止。
+  - `BGT-005` `onDone` 返回 `stopped` 时主循环可提前停止。
+
+#### WP1-C 建议执行命令
+
+1. `bun test src/__tests__/phase1_budget_guard.test.ts`
+2. `bun test src/__tests__/phase1_query_engine.test.ts`
 
 ### WP1-D：错误分类与恢复矩阵
 

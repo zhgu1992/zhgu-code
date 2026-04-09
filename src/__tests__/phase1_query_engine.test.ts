@@ -32,12 +32,20 @@ describe('Phase 1 / WP1-B Query engine decomposition', () => {
       ]),
       state,
       {
-        onThinkingChunk: () => seen.push('thinking'),
-        onTextChunk: () => seen.push('text'),
-        onToolUseStart: () => seen.push('tool_use_start'),
+        onThinkingChunk: () => {
+          seen.push('thinking')
+        },
+        onTextChunk: () => {
+          seen.push('text')
+        },
+        onToolUseStart: () => {
+          seen.push('tool_use_start')
+        },
         onToolInputComplete: async () => 'completed',
         onLegacyToolUse: async () => 'completed',
-        onDone: () => seen.push('done'),
+        onDone: () => {
+          seen.push('done')
+        },
       },
     )
 
