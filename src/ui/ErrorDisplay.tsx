@@ -63,7 +63,14 @@ function parseError(error: string): ParsedError {
   }
 
   // Network errors
-  if (error.includes('network') || error.includes('ECONNREFUSED') || error.includes('ETIMEDOUT')) {
+  if (
+    error.includes('network')
+    || error.includes('Connection error')
+    || error.includes('ConnectionRefused')
+    || error.includes('ECONNREFUSED')
+    || error.includes('ETIMEDOUT')
+    || error.includes('timeout')
+  ) {
     return {
       type: 'network',
       message: error,

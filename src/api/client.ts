@@ -4,6 +4,42 @@ import { getAPIConfig } from '../services/config.js'
 
 let client: Anthropic | null = null
 
+const STREAM_CONNECT_TIMEOUT_MS = Number.parseInt(
+  process.env.ZHGU_STREAM_CONNECT_TIMEOUT_MS || '20000',
+  10,
+)
+const STREAM_IDLE_TIMEOUT_MS = Number.parseInt(
+  process.env.ZHGU_STREAM_IDLE_TIMEOUT_MS || '45000',
+  10,
+)
+const STREAM_REQUEST_TIMEOUT_MS = Number.parseInt(
+  process.env.ZHGU_STREAM_REQUEST_TIMEOUT_MS || '600000',
+  10,
+)
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: 'connection' | 'idle',
+  onTimeout?: () => void,
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          onTimeout?.()
+          reject(new Error(`Stream ${label} timeout after ${timeoutMs}ms`))
+        }, timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId)
+  }
+}
+
 export function createClient(): Anthropic {
   if (client) return client
 
@@ -52,12 +88,33 @@ export async function* stream(params: MessageParams): AsyncGenerator<StreamEvent
 
   try {
     // Use streaming API
-    const messageStream = await api.messages.stream(requestParams)
+    const messageStream = api.messages.stream(requestParams, {
+      timeout: STREAM_REQUEST_TIMEOUT_MS,
+    })
 
     // Track tool input accumulation for each tool use
     const toolInputs: Map<number, string> = new Map()
+    let doneEmitted = false
+    let hasReceivedEvent = false
 
-    for await (const event of messageStream) {
+    const iterator = messageStream[Symbol.asyncIterator]()
+
+    while (true) {
+      const timeoutMs = hasReceivedEvent
+        ? STREAM_IDLE_TIMEOUT_MS
+        : STREAM_CONNECT_TIMEOUT_MS
+      const next = await withTimeout(
+        iterator.next(),
+        timeoutMs,
+        hasReceivedEvent ? 'idle' : 'connection',
+        () => messageStream.abort(),
+      )
+
+      if (next.done) break
+
+      hasReceivedEvent = true
+      const event = next.value
+
       switch (event.type) {
         case 'content_block_delta':
           if (event.delta.type === 'text_delta') {
@@ -104,6 +161,7 @@ export async function* stream(params: MessageParams): AsyncGenerator<StreamEvent
 
         case 'message_stop':
           // Signal completion - don't wait for finalMessage() to avoid blocking
+          doneEmitted = true
           yield {
             type: 'done',
             inputTokens: undefined,
@@ -117,6 +175,15 @@ export async function* stream(params: MessageParams): AsyncGenerator<StreamEvent
             // We'll update token usage when available
           }
           break
+      }
+    }
+
+    // Some non-standard providers may close stream without message_stop.
+    if (!doneEmitted) {
+      yield {
+        type: 'done',
+        inputTokens: undefined,
+        outputTokens: undefined,
       }
     }
   } catch (error) {

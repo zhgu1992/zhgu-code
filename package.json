@@ -9,9 +9,9 @@
   "scripts": {
     "dev": "bun run src/entrypoint.ts",
     "build": "bun build src/entrypoint.ts --outdir dist --target bun",
-    "lint": "biome lint src/",
-    "lint:fix": "biome lint --fix src/",
-    "format": "biome format --write src/",
+    "lint": "biome lint --config-path ./biome.json src/",
+    "lint:fix": "biome lint --config-path ./biome.json --fix src/",
+    "format": "biome format --config-path ./biome.json --write src/",
     "test": "bun test"
   },
   "dependencies": {

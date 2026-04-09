@@ -44,6 +44,9 @@ function createMockStore(overrides: Partial<AppState> = {}) {
       }
     },
     setToolProgress: (progress) => set({ toolProgress: progress }),
+    updateToolProgress: (updates) => set((s) => ({
+      toolProgress: s.toolProgress ? { ...s.toolProgress, ...updates } : null,
+    })),
     setTokenUsage: (input, output) => set({ inputTokens: input, outputTokens: output }),
 
     ...overrides,

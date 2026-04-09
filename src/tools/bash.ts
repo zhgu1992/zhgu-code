@@ -1,6 +1,7 @@
 import { spawn } from 'child_process'
 import type { Tool, ToolContext } from '../types.js'
 import type { AppStore } from '../state/store.js'
+import { statSync } from 'fs'
 
 interface BashInput {
   command: string
@@ -8,7 +9,44 @@ interface BashInput {
   description?: string
 }
 
-export const BashTool: Tool<BashInput, string> = {
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory()
+  } catch {
+    return false
+  }
+}
+
+function pathExists(path: string): boolean {
+  try {
+    statSync(path)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function resolveShellPath(): string {
+  const candidates = [
+    process.env.SHELL,
+    '/bin/zsh',
+    '/usr/bin/zsh',
+    '/bin/bash',
+    '/usr/bin/bash',
+    '/bin/sh',
+    '/usr/bin/sh',
+  ]
+
+  for (const candidate of candidates) {
+    if (candidate && pathExists(candidate) && isDirectory(candidate) === false) {
+      return candidate
+    }
+  }
+
+  return 'sh'
+}
+
+export const BashTool: Tool<BashInput, string, AppStore> = {
   name: 'Bash',
   description:
     'Execute a bash command. Use for running shell commands, scripts, and system operations.',
@@ -33,6 +71,8 @@ export const BashTool: Tool<BashInput, string> = {
 
   async execute(input: BashInput, context: ToolContext, store?: AppStore) {
     const timeout = input.timeout || 120000
+    const cwd = isDirectory(context.cwd) ? context.cwd : process.cwd()
+    const shell = resolveShellPath()
 
     // 更新进度的辅助函数
     const updateProgress = (progress: Partial<{
@@ -62,8 +102,8 @@ export const BashTool: Tool<BashInput, string> = {
       }
 
       const child = spawn(input.command, [], {
-        shell: true,
-        cwd: context.cwd,
+        shell,
+        cwd,
       })
 
       // 设置超时
@@ -125,7 +165,7 @@ export const BashTool: Tool<BashInput, string> = {
         if (code === 0) {
           resolve(output || '(no output)')
         } else {
-          resolve(`Exit code: ${code}\n${output}`)
+          resolve(`Error: Exit code ${code}\n${output}`)
         }
       })
 
