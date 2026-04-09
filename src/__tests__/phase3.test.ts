@@ -4,6 +4,7 @@ import { getTools } from '../tools/registry.js'
 import { executeTool } from '../tools/executor.js'
 import type { AppState, AppActions, PendingTool, ToolProgress } from '../state/store.js'
 import type { PermissionMode } from '../definitions/types/permission.js'
+import type { QueryTurnTransition } from '../architecture/contracts/query-engine.js'
 
 type StoreState = AppState & AppActions
 
@@ -23,6 +24,8 @@ function createMockStore(overrides: Partial<AppState> = {}) {
     error: null,
     context: null,
     currentTurnId: null,
+    turnState: 'idle',
+    turnStopReason: null,
     pendingTool: null,
     toolProgress: null,
     inputTokens: 0,
@@ -31,6 +34,12 @@ function createMockStore(overrides: Partial<AppState> = {}) {
     addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
     setContext: (context) => set({ context }),
     setCurrentTurnId: (turnId) => set({ currentTurnId: turnId }),
+    setTurnState: (turnState, reason = null) => set({ turnState, turnStopReason: reason }),
+    applyTurnTransition: (transition: QueryTurnTransition) => set({
+      currentTurnId: transition.turnId,
+      turnState: transition.to,
+      turnStopReason: transition.reason ?? null,
+    }),
     clearMessages: () => set({ messages: [] }),
     startStreaming: () => set({ isStreaming: true, thinking: null }),
     stopStreaming: () => set({ isStreaming: false, thinking: null }),

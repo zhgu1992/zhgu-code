@@ -73,7 +73,8 @@
 
 | WIP | 问题与边界 | 超越目标 | 核心设计 | 验证Case/DoD | 风险回滚 | 状态 |
 |---|---|---|---|---|---|---|
-| `wip1-a` | 已补充（见 WP1-A 设计核心） | 已补充（恢复性/可观测性） | 已补充（状态/迁移/不变式） | 已补充（TSM-001~016） | 待补充 | In Progress |
+| `wip1-a` | 已补充（见 WP1-A 设计核心） | 已补充（恢复性/可观测性） | 已补充（状态/迁移/不变式） | 已补充（TSM-001~016） | 已补充（保留兼容入口、迁移失败可阻断、增量接线可回退） | In Progress |
+| `wip1-b` | 已补充（仅拆职责，不改外部行为） | 已补充（复杂度下降、可测性提升） | 已补充（runner/consumer/orchestrator 分层） | 已补充（新增 phase1_query_engine + 现有回归） | 已补充（先抽函数后迁文件，保留 legacy 入口） | Planned |
 
 ## 阶段完成标准（DoD）
 
@@ -196,6 +197,61 @@
 - 验收：
   - 与现有输入输出行为兼容
   - `query-formatting` 与 Phase 2/3/4 现有测试无回归
+
+#### WP1-B 设计核心（必须先达成共识）
+
+1. 要解决的问题（Problem Statement）
+- 当前 `core/query.ts` 同时承担 turn 生命周期、provider 事件消费、tool 编排与收尾，职责耦合过重。
+- 状态迁移虽已接入（WP1-A），但执行骨架仍是单函数，后续接入 budget/recovery/transcript 风险高。
+- 关键路径（tool 递归续跑、权限拒绝、异常收尾）缺少模块级边界，难以做聚焦测试。
+
+2. 模块能力与边界（Capabilities & Boundaries）
+- `query-runner`：统一管理 turn 起止、trace 边界、状态复位、异常收敛。
+- `stream-consumer`：仅负责消费 provider stream event 并驱动内部动作，不直接做复杂编排决策。
+- `tool-orchestrator`：负责 `tool_use/tool_result` 写回、权限分支、递归续跑触发。
+- `core/query.ts`：仅保留兼容入口与轻量适配，不承载业务分支。
+
+3. 约束与不变式（Invariants）
+- 外部行为不变：`query(store, options)` 调用方式和可见输出语义保持兼容。
+- 递归续跑语义不变：tool 完成后仍通过同一主链路继续 query。
+- 终止收敛不变：无论正常结束或异常，最终都能进入统一收尾（streaming stop + 状态复位）。
+- 状态迁移证据不变：`WP1-A` 的 `turn_transition` 事件链不能丢失。
+
+4. 与后续工作包耦合关系
+- `WP1-C` 预算检查将挂在 `query-runner` 的统一执行骨架中。
+- `WP1-D` 错误分类与恢复策略将注入 `stream-consumer`/`tool-orchestrator` 分支点。
+- `WP1-E/F` transcript 与 trace 对齐依赖 `stream-consumer` 的稳定事件抽象。
+
+#### WP1-B 验证说明（具体 Case）
+
+1. 建议测试文件
+- `src/__tests__/phase1_query_engine.test.ts`（WP1-B 新增）
+- `src/__tests__/query-formatting.test.ts`（已有回归）
+- `src/__tests__/phase1_turn_state_machine.test.ts`（已有回归）
+- `src/__tests__/phase1_query_state_integration.test.ts`（已有回归）
+
+2. 必测用例清单（最小集合）
+
+| Case ID | 场景 | Given | When | Then |
+|---|---|---|---|---|
+| `QENG-001` | 无工具正常结束 | provider 只产出 text+done | 执行 query | 追加 assistant 消息，turn 收敛到 `stopped(completed)`，最终复位 `idle` |
+| `QENG-002` | 自动工具递归续跑 | provider 产出 `tool_use(auto)` | tool 执行成功并返回 | 写入 `tool_use/tool_result` 后触发续跑，状态回到 `streaming` |
+| `QENG-003` | 授权拒绝终止 | permissionMode=`ask` | tool 被拒绝 | query 停止并设置错误，turn 收敛为 `stopped(permission_denied)` |
+| `QENG-004` | 异常统一收尾 | provider 或 tool 抛错 | 执行 query | 记录错误并进入统一收尾，不遗留 streaming 状态 |
+| `QENG-005` | 迁移事件完整 | 任一主链路场景 | 执行 query | trace 中可见关键 `turn_transition` 序列，无断链 |
+
+3. 完成判定（Definition of Done for WP1-B）
+
+1. `QENG-001 ~ QENG-005` 全部通过。
+2. `query-formatting`、`phase1_turn_state_machine`、`phase1_query_state_integration` 无回归。
+3. `core/query.ts` 复杂分支迁移到 `src/application/query/`，入口文件保留薄适配职责。
+4. 若行为偏差出现，可在单次提交内回退到兼容路径（保留 `legacyQueryEngine`）。
+
+4. 建议执行命令
+
+1. `bun test src/__tests__/phase1_query_engine.test.ts`
+2. `bun test src/__tests__/query-formatting.test.ts`
+3. `bun test src/__tests__/phase1_turn_state_machine.test.ts src/__tests__/phase1_query_state_integration.test.ts`
 
 ### WP1-C：Budget Guard（token/context）
 

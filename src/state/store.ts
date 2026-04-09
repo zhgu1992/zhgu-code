@@ -4,6 +4,11 @@ import type { Context } from '../core/context.js'
 import type { PermissionMode } from '../definitions/types/permission.js'
 import { createSessionId, createSpanId, createTraceId } from '../observability/ids.js'
 import { getTraceBus } from '../observability/trace-bus.js'
+import type {
+  QueryTurnState,
+  QueryTurnStopReason,
+  QueryTurnTransition,
+} from '../architecture/contracts/query-engine.js'
 
 // Permission prompt types
 export interface PendingTool {
@@ -35,6 +40,8 @@ export interface AppState {
   cwd: string
   context: Context | null
   currentTurnId: string | null
+  turnState: QueryTurnState
+  turnStopReason: QueryTurnStopReason | null
 
   // Messages
   messages: Message[]
@@ -62,6 +69,8 @@ export interface AppActions {
   // Context
   setContext: (context: Context) => void
   setCurrentTurnId: (turnId: string | null) => void
+  setTurnState: (state: QueryTurnState, reason?: QueryTurnStopReason | null) => void
+  applyTurnTransition: (transition: QueryTurnTransition) => void
 
   // Messages
   addMessage: (message: Message) => void
@@ -116,6 +125,8 @@ export function createStore(options: CreateStoreOptions): AppStore {
     cwd: options.cwd,
     context: null,
     currentTurnId: null,
+    turnState: 'idle',
+    turnStopReason: null,
     messages: [],
     isStreaming: false,
     streamingText: null,
@@ -130,6 +141,34 @@ export function createStore(options: CreateStoreOptions): AppStore {
     setContext: (context: Context) => set({ context }),
 
     setCurrentTurnId: (turnId: string | null) => set({ currentTurnId: turnId }),
+
+    setTurnState: (turnState, reason = null) => set({ turnState, turnStopReason: reason }),
+
+    applyTurnTransition: (transition) => {
+      const state = get()
+      traceBus.emit({
+        stage: 'state',
+        event: 'turn_transition',
+        status: transition.to === 'stopped' && transition.reason !== 'completed' ? 'error' : 'ok',
+        session_id: state.sessionId,
+        trace_id: state.traceId,
+        turn_id: transition.turnId ?? undefined,
+        span_id: createSpanId(),
+        priority: 'normal',
+        payload: {
+          from: transition.from,
+          to: transition.to,
+          event: transition.event,
+          reason: transition.reason,
+        },
+      })
+
+      set({
+        currentTurnId: transition.turnId,
+        turnState: transition.to,
+        turnStopReason: transition.reason ?? null,
+      })
+    },
 
     addMessage: (message: Message) => set((state) => {
       if (message.id) {
