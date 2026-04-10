@@ -233,6 +233,18 @@ Phase 2 当前推进状态（2026-04-10）：
 8. 进入 `wip2-04/05/06` 实现前置门保持不变：先冻结 `wip2-02/03` 接口，再按 `risk -> permission -> mode_gate -> boundary_gate -> execute/deny -> audit` 接线。
 9. 当前串行主链保持：`wip2-02 -> wip2-03 -> wip2-04 -> wip2-05 -> wip2-06 -> wip2-07`。
 
+### Phase 2.5：Context Monitoring Plane（监控先行）
+目标：先完成 context 监控、告警、阻断信号统一，不在本阶段实现自动压缩策略。
+
+1. 统一 context usage 与阈值状态口径（warning/error/blocking）
+2. 补齐 context 事件（可追踪、可断言、可回放）
+3. 对齐 `/context` 命令与 query 真实 API 视图
+4. 形成压缩后置 TODO 交接包（移交 Phase Extra）
+
+完成标准：
+- Context 监控链路稳定可用，且不改变主链路行为
+- 压缩策略未启用，但待办已结构化并可执行
+
 ### Phase 3：Integration Plane（MCP/Plugin/Skill）
 目标：建立“能力接入层”，而非继续硬编码工具。
 
@@ -266,13 +278,27 @@ Phase 2 当前推进状态（2026-04-10）：
 - CI 绿灯可作为合并前置条件
 - 回归成本可控
 
+### Phase Extra：Advanced Modules（后置复杂模块池）
+目标：在主架构稳定后承接高复杂度、可独立灰度和可独立回滚的模块化能力。
+
+1. 首个模块：承接 Phase 2.5 的 context 压缩 TODO（策略编排、溢出恢复、质量评估）
+2. 后续复杂模块统一纳入 Extra（遵循同一准入与回滚模板）
+3. 默认要求：feature flag、独立验收、不破坏 Phase 1~5 前置门
+
+完成标准：
+- 复杂模块具备独立开关、独立门禁、独立回滚
+- 压缩能力可灰度上线，不影响主架构主链路稳定性
+
 ## 6) 建议的近期执行顺序（你下一步就做这个）
 
 1. 先做 Phase 0（ADR + 目录/接口冻结），不要直接补零散功能。  
 2. Phase 0.1 已完成（链路追踪基线），当前保持稳定并随 Phase 1 语义对齐。  
 3. 进入 Phase 1（Query Engine v2），这是所有后续能力的“主依赖”。  
 4. 再做 Phase 2（执行与权限平面），确保能力扩展前先守住风险。  
-5. 最后并行推进 Phase 3/4（集成面 + 编排面），形成平台能力闭环。  
+5. 插入 Phase 2.5（Context 监控先行），冻结监控口径并产出压缩 TODO 包。  
+6. 再推进 Phase 3/4（集成面 + 编排面），形成平台能力闭环。  
+7. 完成 Phase 5（质量与发布平面）并冻结主线质量门。  
+8. 最后进入 Phase Extra，承接压缩等高复杂度独立模块。  
 
 ## 7) 跨 Phase 粗步骤（含 WIP 门禁）
 

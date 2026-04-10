@@ -9,9 +9,11 @@
 3. Phase 0.1: [docs/roadmap/phase-0-1/README.md](./phase-0-1/README.md)
 4. Phase 1: [docs/roadmap/phase-1/README.md](./phase-1/README.md)
 5. Phase 2: [docs/roadmap/phase-2/README.md](./phase-2/README.md)
-6. Phase 3: [docs/roadmap/phase-3/README.md](./phase-3/README.md)
-7. Phase 4: [docs/roadmap/phase-4/README.md](./phase-4/README.md)
-8. Phase 5: [docs/roadmap/phase-5/README.md](./phase-5/README.md)
+6. Phase 2.5: [docs/roadmap/phase-2-5/README.md](./phase-2-5/README.md)
+7. Phase 3: [docs/roadmap/phase-3/README.md](./phase-3/README.md)
+8. Phase 4: [docs/roadmap/phase-4/README.md](./phase-4/README.md)
+9. Phase 5: [docs/roadmap/phase-5/README.md](./phase-5/README.md)
+10. Phase Extra: [docs/roadmap/phase-extra/README.md](./phase-extra/README.md)
 
 ## 状态规范
 
