@@ -1,4 +1,4 @@
-# Reader Guide（读者导读）
+# Guide（读者导读）
 
 这一组文档是给“学习仓库的人”看的，不是给“直接改代码的人”看的。
 
@@ -10,3 +10,4 @@
 ## 章节
 
 1. [Phase 1 - Query Engine v2：核心功能与设计思路](./phase-1-query-engine-v2/README.md)
+2. [Phase 2 - Execution Plane：核心功能与设计思路](./phase-2-execution-plane/README.md)
