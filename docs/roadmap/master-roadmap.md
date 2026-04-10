@@ -228,8 +228,10 @@ Phase 2 当前推进状态（2026-04-10）：
 3. `wip2-03`（风险分级模型）已完成：`platform/permission/risk.ts` 与 `phase2_risk_model.test.ts` 已落地，覆盖 `RSK-001~005`。
 4. `wip2-04`（执行入口治理接入）门禁讨论已完成：`WP2-C` 已补齐 Why/边界/决策矩阵/DoD/回滚，接口保持 `executeTool(name, input, store)` 不变。
 5. `wip2-05`（审计事件链路）门禁讨论已启动：`WP2-D` 已补齐 Why/边界/事件序列/DoD/回滚，明确失败降级为 `trace-only`。
-6. 进入 `wip2-04/05` 实现前置门保持不变：先冻结 `wip2-02/03` 接口，再按 `risk -> permission -> mode_gate -> execute/deny -> audit` 接线。
-7. 当前串行主链保持：`wip2-02 -> wip2-03 -> wip2-04 -> wip2-05 -> wip2-06 -> wip2-07`。
+6. `wip2-06`（边界硬化）门禁讨论已完成：`WP2-E` 已补齐 Why/边界/边界门设计/DoD/回滚，明确在 `mode_gate` 后追加 `boundary_gate`。
+7. `wip2-07`（阶段收口）已完成：新增 `src/application/phase2/closure.ts` 与 `phase2_closure.test.ts`，将放行决策矩阵、豁免校验、回滚基线与 DoD 阻塞规则落为可执行断言。
+8. 进入 `wip2-04/05/06` 实现前置门保持不变：先冻结 `wip2-02/03` 接口，再按 `risk -> permission -> mode_gate -> boundary_gate -> execute/deny -> audit` 接线。
+9. 当前串行主链保持：`wip2-02 -> wip2-03 -> wip2-04 -> wip2-05 -> wip2-06 -> wip2-07`。
 
 ### Phase 3：Integration Plane（MCP/Plugin/Skill）
 目标：建立“能力接入层”，而非继续硬编码工具。

@@ -81,7 +81,7 @@
 | `wip2-04` 执行入口治理接入 | `executeTool` 仍是简单审批流，拒绝语义不一致 | 不改调用方签名前提下接入完整治理流水线 | `tools/executor.ts` 接入 `risk -> permission -> execute/deny` | `EXE-001~006` 通过 | feature flag 退回旧执行路径 | Pending |
 | `wip2-05` 审计事件链路 | 审计模型未持久化，无法追溯决策链路 | 构建“请求-决策-执行-结果”全链路可追溯 | 新增 audit emitter/writer，关联 trace span/requestId | `AUD-001~005` 通过 | 审计写入失败降级 trace-only | Pending |
 | `wip2-06` Bash/文件边界硬化 | 文件写入/shell 高危路径缺统一边界 | 高风险默认可控，优先阻断不可逆副作用 | 文件路径边界检查 + shell 高危模式兜底 + 网络策略补强 | `HARD-001~008` 通过 | 可临时降级为 ask-only | Pending |
-| `wip2-07` 收口验收与回滚预案 | 缺少 Phase 2 专项门禁套件 | 阶段交付具备可重复验收与豁免留痕 | 汇总测试与文档更新，形成验收报告模板 | `phase2_* + phase1_*` 前置门全绿 | 未达标不推进 Phase 3/4 | Pending |
+| `wip2-07` 收口验收与回滚预案 | 缺少 Phase 2 专项门禁套件 | 阶段交付具备可重复验收与豁免留痕 | 汇总测试与文档更新，形成验收报告模板 | `phase2_* + phase1_*` 前置门全绿 | 未达标不推进 Phase 3/4 | Completed |
 
 ## 阶段完成标准（DoD）
 
@@ -289,6 +289,9 @@
 
 - 目标：形成可重复验收与风险豁免记录。
 - 产出：验收报告模板、豁免模板、阶段总结。
+- 实现：
+  - `src/application/phase2/closure.ts`
+  - `src/__tests__/phase2_closure.test.ts`
 - 验收：`build/type/lint + phase2_* + phase1_*` 全绿。
 
 ## 依赖与并行策略
