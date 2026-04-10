@@ -91,7 +91,7 @@ export async function* stream(
   }
 
   if (params.system) {
-    requestParams.system = params.system
+    requestParams.system = params.system as Anthropic.Messages.MessageStreamParams['system']
   }
 
   if (params.tools && params.tools.length > 0) {

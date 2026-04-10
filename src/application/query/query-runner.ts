@@ -68,7 +68,10 @@ export async function runQuery(store: AppStore, options?: QueryOptions): Promise
   const quiet = options?.quiet ?? state.quiet
   const emitStdout = options?.emitStdout ?? true
   const messages = state.messages.map(formatMessageForAPI)
-  const systemPrompt = buildSystemPrompt(resolveContext(state.context, state.cwd))
+  const systemPromptBundle = buildSystemPrompt(resolveContext(state.context, state.cwd), {
+    enableCachePrefixStrategy: process.env.ZHGU_DISABLE_PROMPT_CACHE_PREFIX_STRATEGY !== '1',
+  })
+  const systemPrompt = systemPromptBundle.system
   const budget = options?.budget
   const contextTokens = estimateContextTokens(systemPrompt, state.messages)
   let lastStreamingSnapshotStatus: ContextHealthSnapshot['status'] | null = null

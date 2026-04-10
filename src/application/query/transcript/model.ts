@@ -46,6 +46,7 @@ type ParseErr = {
 }
 
 export type TranscriptParseResult<T = TranscriptEvent> = ParseOk<T> | ParseErr
+type TranscriptEventBaseOf<T extends TranscriptEventType> = TranscriptEventBase & { type: T }
 
 interface TranscriptEventBaseInput {
   sessionId: string
@@ -118,12 +119,12 @@ export function parseTranscriptEvent(raw: unknown): TranscriptParseResult {
     return { ok: false, error: 'event.type is invalid' }
   }
 
-  const base = parseBase(raw, type)
-  if (!base.ok) {
-    return base
-  }
-
   if (type === 'session_start') {
+    const base = parseBase(raw, 'session_start')
+    if (!base.ok) {
+      return base
+    }
+
     if (typeof raw.model !== 'string' || raw.model.length === 0) {
       return { ok: false, error: 'session_start.model is required' }
     }
@@ -142,6 +143,11 @@ export function parseTranscriptEvent(raw: unknown): TranscriptParseResult {
   }
 
   if (type === 'message_append') {
+    const base = parseBase(raw, 'message_append')
+    if (!base.ok) {
+      return base
+    }
+
     if (typeof raw.message_id !== 'string' || raw.message_id.length === 0) {
       return { ok: false, error: 'message_append.message_id is required' }
     }
@@ -167,6 +173,11 @@ export function parseTranscriptEvent(raw: unknown): TranscriptParseResult {
     }
   }
 
+  const base = parseBase(raw, 'session_end')
+  if (!base.ok) {
+    return base
+  }
+
   if (raw.reason !== undefined && typeof raw.reason !== 'string') {
     return { ok: false, error: 'session_end.reason must be string when provided' }
   }
@@ -187,11 +198,11 @@ export function parseTranscriptEvent(raw: unknown): TranscriptParseResult {
   }
 }
 
-function createBase(
+function createBase<T extends TranscriptEventType>(
   input: TranscriptEventBaseInput,
-  type: TranscriptEventType,
-): TranscriptEventBase {
-  const event: TranscriptEventBase = {
+  type: T,
+): TranscriptEventBaseOf<T> {
+  const event: TranscriptEventBaseOf<T> = {
     ts: input.timestamp || new Date().toISOString(),
     type,
     session_id: input.sessionId,
@@ -205,7 +216,10 @@ function createBase(
   return event
 }
 
-function parseBase(raw: Record<string, unknown>, type: TranscriptEventType): TranscriptParseResult<TranscriptEventBase> {
+function parseBase<T extends TranscriptEventType>(
+  raw: Record<string, unknown>,
+  type: T,
+): TranscriptParseResult<TranscriptEventBaseOf<T>> {
   if (typeof raw.ts !== 'string' || raw.ts.length === 0) {
     return { ok: false, error: `${type}.ts is required` }
   }

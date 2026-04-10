@@ -149,10 +149,20 @@ export interface APIClientOptions {
   baseURL?: string
 }
 
+export interface SystemPromptCacheControl {
+  type: 'ephemeral'
+}
+
+export interface SystemPromptBlock {
+  type: 'text'
+  text: string
+  cache_control?: SystemPromptCacheControl
+}
+
 export interface MessageParams {
   model: string
   max_tokens: number
-  system?: string
+  system?: string | SystemPromptBlock[]
   messages: Array<{
     role: 'user' | 'assistant' | 'system'
     content: unknown

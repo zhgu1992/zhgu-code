@@ -1,5 +1,5 @@
 import type { QueryTurnBudget } from '../../architecture/contracts/query-engine.js'
-import type { Message, MessageContent } from '../../definitions/types/index.js'
+import type { Message, MessageContent, MessageParams } from '../../definitions/types/index.js'
 
 export type BudgetMetric = 'input_tokens' | 'output_tokens' | 'context_tokens'
 
@@ -34,8 +34,11 @@ export function estimateTokensFromText(text: string): number {
   return Math.ceil(text.length / 4)
 }
 
-export function estimateContextTokens(systemPrompt: string, messages: Message[]): number {
-  const systemTokens = estimateTokensFromText(systemPrompt)
+export function estimateContextTokens(
+  systemPrompt: MessageParams['system'],
+  messages: Message[],
+): number {
+  const systemTokens = estimateSystemPromptTokens(systemPrompt)
   const messageTokens = messages.reduce((total, message) => {
     return total + estimateMessageTokens(message.content)
   }, 0)
@@ -124,4 +127,16 @@ function estimateMessageTokens(content: MessageContent): number {
         return total
     }
   }, 0)
+}
+
+function estimateSystemPromptTokens(systemPrompt: MessageParams['system']): number {
+  if (!systemPrompt) {
+    return 0
+  }
+
+  if (typeof systemPrompt === 'string') {
+    return estimateTokensFromText(systemPrompt)
+  }
+
+  return systemPrompt.reduce((total, block) => total + estimateTokensFromText(block.text), 0)
 }
