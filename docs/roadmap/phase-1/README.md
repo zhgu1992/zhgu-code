@@ -360,6 +360,93 @@
   - 记录 `tool_use` 与 `tool_result` 关联
   - 可读取并复原主链路
 
+#### WP1-E 设计核心（必须先达成共识）
+
+0. 为什么做（Why）
+- 当前链路已经有 trace，但 trace 面向执行诊断，不等价于“用户可核对的会话事实”。
+- 若不先定义 transcript 语义边界，后续会出现 transcript/trace 双模重复建模，导致字段漂移与回放口径不一致。
+- WP1-E 的目标不是做“全量事件存档系统”，而是先建立最小可复原主链路（`input -> tool_use/tool_result -> output`）的事实账本。
+
+1. 作用域与边界（Scope）
+- In Scope：
+  - session 级 JSONL 持久化；
+  - 记录消息追加事实（user/assistant/tool 链路）；
+  - 提供最小 reader，把事件还原为 turn 主链路。
+- Out of Scope：
+  - 跨会话恢复编排、断点续跑；
+  - transcript 驱动业务重放执行；
+  - 与外部遥测平台打通（OTel/exporter）。
+
+2. 最小事件模型（V1）
+- 建议只定义三类事件，避免首版过拟合：
+  - `session_start`：会话元数据（`session_id/trace_id/model/cwd`）。
+  - `message_append`：消息写入事实（`turn_id/message_id/role/content/is_tool_result`）。
+  - `session_end`：会话结束元数据（`reason/duration_ms`，无则可选）。
+- 约束：
+  - transcript 不记录流式增量 chunk，只记录“最终追加消息”。
+  - `tool_use` 与 `tool_result` 关联必须依赖现有字段：`tool_use.id <-> tool_result.tool_use_id`。
+  - 事件必须单调追加（append-only），不允许原地改写历史记录。
+
+3. 写入时机与一致性（Write Semantics）
+- 单一写入入口：优先挂在 `state.addMessage(...)` 路径，避免 query/tool 分支重复写入。
+- 写入策略：
+  - best-effort 异步写盘，失败不阻塞主执行；
+  - 写入失败必须可见（stderr/trace error）；
+  - 同一进程内保证顺序写入（队列串行）。
+- 可见性规则：
+  - `isToolResult !== true` 视为用户可见消息；
+  - `isToolResult === true` 视为内部链路证据（仍需落盘用于复原 tool 链路）。
+
+4. 回放规则（Replay Semantics）
+- reader 最小能力：读取 JSONL -> 校验事件 -> 聚合为 turn 链路。
+- turn 复原口径：
+  - 输入：该 turn 的 user 可见消息；
+  - 中间：tool_use/tool_result 关联链；
+  - 输出：assistant 可见最终消息。
+- 若存在不完整链路（如缺失 tool_result），reader 要给出“部分可复原”标记而不是静默吞掉。
+
+5. 与 Trace 的最小差异原则（必须遵守）
+- trace 回答“执行发生了什么”；transcript 回答“会话可核对事实是什么”。
+- transcript 不复制 trace 的 span/priority/status 等诊断字段，只保留必要关联键（`session_id/trace_id/turn_id`）。
+- Phase 1 内禁止把 transcript 扩展为第二套 observability 系统。
+
+6. 与后续工作包耦合关系
+- `WP1-F` 将基于 transcript + trace 双回放验证“状态迁移证据”和“会话事实证据”是否一致。
+- `WP1-G` 会把 transcript 读取与主链路复原纳入回归门。
+- `WP1-H` 允许增强恢复事件，但不能破坏 `WP1-E` 的 V1 事件兼容性。
+
+#### WP1-E 验证说明（具体 Case）
+
+1. 建议测试文件
+- `src/__tests__/phase1_transcript_model.test.ts`（模型与约束）
+- `src/__tests__/phase1_transcript_io.test.ts`（写入/读取）
+- `src/__tests__/phase1_transcript_replay.test.ts`（主链路复原）
+
+2. 必测用例清单（最小集合）
+
+| Case ID | 场景 | Given | When | Then |
+|---|---|---|---|---|
+| `TRC-001` | 可见消息落盘 | user + assistant 正常对话 | 发生 `addMessage` | transcript 有对应 `message_append` 记录 |
+| `TRC-002` | 工具链路落盘 | assistant `tool_use` + user `tool_result` | 执行工具续跑 | transcript 中两者可通过 `tool_use_id` 关联 |
+| `TRC-003` | 回放主链路 | 包含输入/工具/输出的一轮会话 | reader 聚合 | 可复原 `input -> tool -> output` |
+| `TRC-004` | 不完整链路标记 | 缺失 `tool_result` 的异常片段 | reader 聚合 | 返回“部分可复原”并标记缺口 |
+| `TRC-005` | 写入失败降级 | 写盘异常（权限/IO） | 执行 query | 主流程不中断，错误可观测 |
+| `TRC-006` | trace/transcript 关联键 | 任意正常回合 | 写入并读取 | `session_id/trace_id/turn_id` 可用于双链路对齐 |
+
+3. 完成判定（Definition of Done for WP1-E）
+
+1. `TRC-001 ~ TRC-006` 全部通过。
+2. 文档 `docs/transcript-model.md` 明确字段、约束和回放口径。
+3. transcript 能稳定复原最小主链路：`input -> tool_use/tool_result -> output`。
+4. 明确与 trace 的职责边界，无字段语义重叠造成的双源冲突。
+
+#### WP1-E 建议执行命令
+
+1. `bun test src/__tests__/phase1_transcript_model.test.ts`
+2. `bun test src/__tests__/phase1_transcript_io.test.ts`
+3. `bun test src/__tests__/phase1_transcript_replay.test.ts`
+4. `bun test src/__tests__/phase1_query_engine.test.ts src/__tests__/phase1_query_state_integration.test.ts`
+
 ### WP1-F：Trace 与状态机语义对齐
 
 - 目标：把 trace 关键事件锚定到状态迁移点
