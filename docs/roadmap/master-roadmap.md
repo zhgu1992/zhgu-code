@@ -205,6 +205,11 @@ Phase 1 实施建议（新增）：
 4. transcript 落地后，将 Phase 0.1 trace 事件语义对齐到状态迁移点（迁移即事件），再优化断言规则。
 5. Phase 1 收尾时执行一次“与原版 Query/Tracing/Transcript 的回对标”，输出：已对齐项、缺口项、下一步补齐计划。
 
+Phase 1 当前门禁命令（补充 / WP1-F）：
+1. `bun test src/__tests__/phase1_trace_transition_assertions.test.ts`
+2. `bun test src/__tests__/phase1_trace_transition_e2e.test.ts`
+3. `bun run trace:assert .trace/trace.jsonl`
+
 ### Phase 2：Execution & Permission Plane（执行安全平面）
 目标：把工具执行从“调用”升级到“治理”。
 
@@ -269,7 +274,7 @@ Phase 1 实施建议（新增）：
 - 每个 WIP 都建立一条门禁记录（见 `docs/roadmap/README.md`）
 
 3. WIP 门禁讨论：
-- 在进入实现前，逐条补齐：问题边界、超越目标、核心设计、验证Case/DoD、风险回滚
+- 在进入实现前，逐条补齐：为什么做（Why）、问题边界、超越目标、核心设计、验证Case/DoD、风险回滚
 - 任何未补齐项都不能进入实现态
 
 4. WIP 实现与验证：

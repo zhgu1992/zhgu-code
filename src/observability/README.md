@@ -12,7 +12,7 @@
 - `sanitize.ts`：敏感信息脱敏、字符串截断、深度限制。
 - `bootstrap.ts`：模块初始化（挂载 sink、发 session.start）。
 - `replay.ts`：读取 trace 文件并触发校验。
-- `assertions.ts`：链路完整性断言（turn/tool/provider/orphan parent）。
+- `assertions.ts`：链路完整性断言（turn/tool/provider/orphan parent/turn_transition 语义）。
 - `index.ts`：统一导出。
 
 ## 事件流转图（核心）
@@ -99,3 +99,4 @@ if (!report.pass) {
 - 观测逻辑不能影响主流程，sink 报错会被吞掉（设计如此）。
 - payload 已脱敏，但仍不建议主动写入原始密钥。
 - 事件命名应保持稳定，断言与后续可视化依赖事件名。
+- `state.turn_transition` 的 payload 语义应保持兼容：`{ from, to, event, reason? }`。

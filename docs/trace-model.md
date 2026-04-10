@@ -32,6 +32,7 @@ interface TraceEvent {
 
 ## 关键事件
 - `turn.start` / `turn.end|turn.error`
+- `state.turn_transition`（`payload: { from, to, event, reason? }`）
 - `provider.stream_start` / `provider.first_event|provider.connect_timeout` / `provider.stream_end|provider.stream_error`
 - `tool.call_start` / `tool.call_end|tool.call_error`
 - `permission.prompt` / `permission.allow|permission.deny`
@@ -53,6 +54,11 @@ interface TraceEvent {
 - 每个 `tool.call_start` 必有 `tool.call_end|tool.call_error`
 - 每个 `provider.stream_start` 必有 `provider.first_event|provider.connect_timeout`
 - 禁止 orphan span（`parent_span_id` 指向不存在的 `span_id`）
+- `state.turn_transition` 必须是合法迁移，且同一 `turn_id` 形成连续链（`prev.to === next.from`）
+- `turn.start` 必须锚定到首个迁移：`idle -> streaming (turn_start)`
+- `turn.end|turn.error` 必须锚定到终态迁移：`to=stopped`
+
+当 trace 中出现 `metrics.dropped_events > 0` 时，迁移链严格断言会降级跳过，避免队列丢事件导致误报。
 
 ## 示例：工具调用回放
 

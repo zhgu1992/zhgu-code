@@ -70,13 +70,15 @@
 ## WIP 执行门禁记录（必填）
 
 执行规则：当进入“执行小步骤”或“讨论 wipxxx”时，若未完成门禁讨论，先补讨论再实现。
+门禁新增要求：`问题与边界` 必须包含 `为什么做（Why）`，否则视为门禁未通过。
 
-| WIP | 问题与边界 | 超越目标 | 核心设计 | 验证Case/DoD | 风险回滚 | 状态 |
+| WIP | 为什么做 + 问题与边界 | 超越目标 | 核心设计 | 验证Case/DoD | 风险回滚 | 状态 |
 |---|---|---|---|---|---|---|
 | `wip1-a` | 已补充（见 WP1-A 设计核心） | 已补充（恢复性/可观测性） | 已补充（状态/迁移/不变式） | 已补充（TSM-001~016） | 已补充（保留兼容入口、迁移失败可阻断、增量接线可回退） | In Progress |
 | `wip1-b` | 已补充（仅拆职责，不改外部行为） | 已补充（复杂度下降、可测性提升） | 已补充（runner/consumer/orchestrator 分层） | 已补充（新增 phase1_query_engine + 现有回归） | 已补充（先抽函数后迁文件，保留 legacy 入口） | Planned |
 | `wip1-c` | 已补充（token/context 回合级预算） | 已补充（从“统计指标”升级为“执行控制”） | 已补充（preflight + streaming + done 三段 guard） | 已补充（BGT-001~005） | 已补充（stop-only 策略，单点回滚 query-runner 接线） | In Progress |
 | `wip1-d` | 已补充（统一错误语义，不在 WP1-D 引入复杂自动编排） | 已补充（错误从“散落异常”升级为“状态机可判定动作”） | 已补充（`errors.ts` 分类 + `recovery.ts` 动作矩阵 + 明确 stop/retry/fatal） | 待补充（DREC-001~008） | 已补充（先保守矩阵，复杂恢复下沉至 `wip1-h`） | In Progress |
+| `wip1-f` | 已补充（trace 已有迁移事件，但缺少语义断言，需防“有事件但语义错”） | 已补充（迁移证据从“可见”升级为“可断言”） | 已补充（`turn_transition` 锚点、合法迁移与终态对齐规则） | 已补充（FTR-001~005 + FTR-E2E-001~003） | 已补充（`dropped_events>0` 时降级跳过严格链路断言） | Done |
 | `wip1-h` | Phase 1 收尾硬化：只处理恢复可靠性，不引入新产品能力 | 已补充（恢复路径从“可跑”升级为“可验证稳定”） | 待讨论（错误子类、分层重试、幂等保护、恢复可观测） | 待补充（故障注入/回归门） | 已补充（非 M4 阻塞，拆分增量落地，可顺延但必须先于 Phase 2 大规模扩展） | Planned |
 
 ## 阶段完成标准（DoD）
@@ -456,6 +458,81 @@
 - 验收：
   - turn 级回放可验证状态迁移完整性
   - 无 orphan 事件回归
+
+#### WP1-F 设计核心（必须先达成共识）
+
+0. 为什么做（Why）
+- 目前 `turn_transition` 已可写入 trace，但还没有被纳入统一断言，导致“有事件”不等于“语义正确”。
+- 若不在 Phase 1 内完成语义对齐，`WP1-E` 的 transcript 回放与 trace 诊断会形成两套口径，后续回归成本会放大。
+- WP1-F 的核心价值是把“迁移即事件”从约定升级为可验证事实，为 M3（可回放可核对）提供证据闭环。
+
+1. 问题与边界（Scope）
+- In Scope：
+  - 将状态机迁移链纳入 trace 断言体系；
+  - 校验关键迁移点与 turn 生命周期事件的一致性；
+  - 提供 turn 级可复盘失败信息（断链点、缺口类型）。
+- Out of Scope：
+  - 不改动状态机状态集合与业务语义；
+  - 不新增 transcript 事件类型；
+  - 不引入外部遥测平台集成。
+
+2. 核心设计（已落地）
+- 断言入口：`validateTraceEvents()` 增加 `assertTurnTransitionSemantics()`。
+- 规则层：
+  - 合法迁移规则：按 `event/from/to/reason` 校验（如 `assistant_done => streaming->stopped(completed)`）。
+  - 迁移链连续性：同一 `turn_id` 满足 `prev.to === next.from`，禁止 `stopped` 后继续迁移。
+  - 生命周期锚点：`turn.start` 必须锚定首个 `turn_transition(turn_start)`；`turn.end|turn.error` 必须锚定 `to=stopped` 的终态迁移。
+- 降级策略：若 trace 出现 `metrics.dropped_events > 0`，跳过严格迁移链断言，避免队列丢事件造成误报。
+
+3. 验证 Case / DoD（FTR）
+- `FTR-001` 合法迁移链通过。
+- `FTR-002` 缺失 `turn_start` 锚点失败。
+- `FTR-003` 迁移链断裂（`prev.to != next.from`）失败。
+- `FTR-004` `turn.end|turn.error` 与终态 reason 不一致失败。
+- `FTR-005` 有 `dropped_events` 信号时触发降级，避免严格断言误报。
+
+完成判定：
+1. `FTR-001~005` 全部通过。
+2. 现有 `phase0_1_observability` 回归通过（兼容旧断言）。
+3. `docs/trace-model.md` 同步更新 `turn_transition` 断言语义。
+
+4. 风险与回滚
+- 风险：严格断言可能在高压丢事件场景误判失败。
+- 回滚策略：
+  - 首选：保留规则但在 `dropped_events > 0` 场景自动降级；
+  - 兜底：若线上仍有噪声，可临时关闭 `assertTurnTransitionSemantics()` 调用，保留 Phase 0.1 断言集。
+
+#### WP1-F 执行清单状态（更新 / 2026-04-10）
+
+1. 已接入“真实 trace 文件回放断言”命令
+- 目标：把 `validateTraceFile()` 从测试能力升级为可执行门禁命令。
+- 变更点：新增 `scripts/trace-assert.ts`，并在 `package.json` 增加 `trace:assert` 脚本。
+- 验收：`bun run trace:assert .trace/trace.jsonl` 非 0 退出可阻断流程。
+
+2. 已增加端到端 FTR（非合成事件）
+- 目标：覆盖“真实运行 -> trace 落盘 -> 回放断言”全链路。
+- 变更点：新增 `src/__tests__/phase1_trace_transition_e2e.test.ts`。
+- 验收：至少覆盖正常完成、工具续跑、错误终止 3 条链路。
+
+3. 已将 WP1-F 门禁并入 Phase 1 验收命令
+- 目标：避免只跑单测不跑回放校验。
+- 变更点：补充本文件与 `docs/roadmap/master-roadmap.md` 的命令列表。
+- 建议命令：
+  - `bun test src/__tests__/phase1_trace_transition_assertions.test.ts`
+  - `bun test src/__tests__/phase1_trace_transition_e2e.test.ts`
+  - `bun run trace:assert .trace/trace.jsonl`
+
+4. 上下文不足时的防幻觉执行约束
+- 只允许基于以下文件推进：
+  - `src/observability/assertions.ts`
+  - `src/observability/replay.ts`
+  - `src/state/store.ts`
+  - `src/application/query/turn-state.ts`
+  - `src/application/query/query-runner.ts`
+- 每次继续前先执行：
+  - `rg -n "turn_transition|validateTraceEvents|dropped_events" src docs -S`
+  - `bun test src/__tests__/phase0_1_observability.test.ts src/__tests__/phase1_trace_transition_assertions.test.ts`
+- 若上述两步任何一项不通过，禁止继续扩展功能，先修复基线再推进。
 
 ### WP1-G：验证门与回归用例补齐
 

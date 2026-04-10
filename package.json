@@ -14,6 +14,7 @@
     "format": "biome format --config-path ./biome.json --write src/",
     "test": "bun test",
     "trace:tail": "./scripts/trace-tail.sh",
+    "trace:assert": "bun run scripts/trace-assert.ts",
     "trace:pretty": "bun run scripts/trace-pretty.ts",
     "trace:pretty:follow": "bun run scripts/trace-pretty.ts --follow",
     "transcript:tail": "./scripts/transcript-tail.sh",
