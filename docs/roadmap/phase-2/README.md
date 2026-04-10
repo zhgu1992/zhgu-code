@@ -76,7 +76,7 @@
 | WIP | 为什么做 + 问题与边界 | 超越目标 | 核心设计 | 验证Case/DoD | 风险回滚 | 状态 |
 |---|---|---|---|---|---|---|
 | `wip2-01` 对标与门禁基线 | Phase 2 模板态不可直接实施，先收敛决策口径与门禁流程 | 一次性固化对标结论与执行门禁，避免后续漂移 | 完整填写对标、超越目标、WIP 记录、里程碑与命令清单 | Phase 文档可直接排期，且无待补占位 | 不通过时仅回退文档 | Completed |
-| `wip2-02` 权限规则引擎 | 仅有类型定义，无规则匹配执行逻辑 | 规则判定收敛到平台层，统一优先级语义 | 新增 `platform/permission/engine.ts`，支持 source/scope 与 `deny > ask > allow` | `PRE-001~004` 通过 | 开关回退到旧 `permissionMode` | In Progress |
+| `wip2-02` 权限规则引擎 | 仅有类型定义，无规则匹配执行逻辑 | 规则判定收敛到平台层，统一优先级语义 | 新增 `platform/permission/engine.ts`，支持 source/scope 与 `deny > ask > allow` | `PRE-001~004` 通过 | 开关回退到旧 `permissionMode` | Completed |
 | `wip2-03` 风险分级模型 | 无统一 `ToolRiskLevel` 计算，风险无法动态升级 | 风险随输入动态升级，不只看工具名 | 新增 `platform/permission/risk.ts`，静态基线 + 输入特征升级 | `RSK-001~005` 通过 | 分级异常时回退静态基线 | Pending |
 | `wip2-04` 执行入口治理接入 | `executeTool` 仍是简单审批流，拒绝语义不一致 | 不改调用方签名前提下接入完整治理流水线 | `tools/executor.ts` 接入 `risk -> permission -> execute/deny` | `EXE-001~006` 通过 | feature flag 退回旧执行路径 | Pending |
 | `wip2-05` 审计事件链路 | 审计模型未持久化，无法追溯决策链路 | 构建“请求-决策-执行-结果”全链路可追溯 | 新增 audit emitter/writer，关联 trace span/requestId | `AUD-001~005` 通过 | 审计写入失败降级 trace-only | Pending |

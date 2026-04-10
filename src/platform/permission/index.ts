@@ -1,15 +1,26 @@
-import type { ToolRiskLevel } from '../../architecture/contracts/tool-runtime.js'
+import type { ToolRiskLevel } from "../../architecture/contracts/tool-runtime.js";
+
+export type PermissionAction = "allow" | "deny" | "ask";
+export type PermissionSource = "default" | "user" | "session";
+export type PermissionScope = "global" | "tool";
 
 export interface PermissionRule {
-  id: string
-  toolName: string
-  riskLevel: ToolRiskLevel
-  action: 'allow' | 'deny' | 'ask'
-  source: 'default' | 'user' | 'session'
+  id: string;
+  action: PermissionAction;
+  source: PermissionSource;
+  riskLevel: ToolRiskLevel | "any";
+  scope?: PermissionScope;
+  toolName?: string;
+}
+
+export interface PermissionRequest {
+  toolName: string;
+  riskLevel: ToolRiskLevel;
 }
 
 export interface PermissionDecision {
-  allowed: boolean
-  action: 'allow' | 'deny' | 'ask'
-  reason: string
+  action: PermissionAction;
+  allowed: boolean;
+  reason: string;
+  matchedRuleIds: string[];
 }
