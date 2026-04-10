@@ -5,7 +5,13 @@ import { createSpanId } from '../observability/ids.js'
 import { getTraceBus } from '../observability/trace-bus.js'
 import { evaluatePermission } from '../platform/permission/engine.js'
 import { assessToolRisk } from '../platform/permission/risk.js'
+import {
+  evaluateBoundary,
+  getPhase2BoundaryEnforcement,
+  isPhase2BoundaryHardeningEnabled,
+} from '../platform/permission/boundary.js'
 import type { PermissionAction, PermissionRule } from '../platform/permission/index.js'
+import type { BoundaryEnforcement, BoundaryReasonCode } from '../platform/permission/boundary.js'
 import {
   createAuditExecutionFinishedEvent,
   createAuditExecutionStartedEvent,
@@ -19,12 +25,16 @@ type DenyReasonCode =
   | 'rule_denied'
   | 'user_denied'
   | 'plan_mode_blocked'
+  | BoundaryReasonCode
 
 interface GovernanceMeta {
   toolName: string
   riskLevel: string
   matchedRuleIds: string[]
   mode: string
+  boundaryBlocked?: boolean
+  boundaryReasonCode?: string
+  boundaryDetails?: Record<string, unknown>
 }
 
 export async function executeTool(
@@ -72,6 +82,8 @@ export async function executeTool(
   let permissionAction: PermissionAction | 'deny' = mode === 'ask' ? 'ask' : 'allow'
   let reasonCode = mode === 'ask' ? 'approval_required_in_auto' : 'approved'
   let matchedRuleIds: string[] = []
+  let boundaryBlocked = false
+  let boundaryReasonCode: string | undefined
 
   if (!tool) {
     permissionAction = 'deny'
@@ -106,6 +118,7 @@ export async function executeTool(
         durationMs: Date.now() - toolStart,
         reasonCode,
         errorMessage: `Unknown tool: ${name}`,
+        boundaryBlocked: false,
         seq: nextAuditSeq(),
       }),
     )
@@ -164,6 +177,7 @@ export async function executeTool(
           durationMs: Date.now() - toolStart,
           reasonCode: 'user_denied',
           errorMessage: legacyDenied,
+          boundaryBlocked: false,
           seq: nextAuditSeq(),
         }),
       )
@@ -239,6 +253,7 @@ export async function executeTool(
           durationMs: Date.now() - toolStart,
           reasonCode: denyReasonCode,
           errorMessage: denyResult,
+          boundaryBlocked: false,
           seq: nextAuditSeq(),
         }),
       )
@@ -254,6 +269,59 @@ export async function executeTool(
         payload: { toolName: name, error: denyResult },
       })
       return denyResult
+    }
+
+    const boundary = evaluateBoundary(name, input, state.cwd)
+    if (isPhase2BoundaryHardeningEnabled()) {
+      const boundaryDecision = await runBoundaryGate({
+        mode,
+        name,
+        input,
+        store,
+        riskLevel: risk.riskLevel,
+        matchedRuleIds,
+        boundary,
+        enforcement: getPhase2BoundaryEnforcement(),
+      })
+
+      boundaryBlocked = boundaryDecision.blocked
+      boundaryReasonCode = boundaryDecision.reasonCode
+      if (boundaryDecision.denyResult) {
+        const denyReasonCode =
+          extractPermissionDeniedReasonCode(boundaryDecision.denyResult) ??
+          boundaryDecision.reasonCode ??
+          reasonCode
+        recordAuditEvent(
+          createAuditExecutionFinishedEvent({
+            sessionId: state.sessionId,
+            traceId: state.traceId,
+            turnId: state.currentTurnId ?? undefined,
+            requestId,
+            toolName: name,
+            success: false,
+            result: 'denied',
+            endedAt: new Date().toISOString(),
+            durationMs: Date.now() - toolStart,
+            reasonCode: denyReasonCode,
+            errorMessage: boundaryDecision.denyResult,
+            boundaryBlocked,
+            boundaryReasonCode,
+            seq: nextAuditSeq(),
+          }),
+        )
+        traceBus.emit({
+          stage: 'tool',
+          event: 'call_error',
+          status: 'error',
+          session_id: state.sessionId,
+          trace_id: state.traceId,
+          turn_id: state.currentTurnId ?? undefined,
+          span_id: toolSpanId,
+          metrics: { duration_ms: Date.now() - toolStart },
+          payload: { toolName: name, error: boundaryDecision.denyResult },
+        })
+        return boundaryDecision.denyResult
+      }
     }
   }
 
@@ -317,6 +385,8 @@ export async function executeTool(
         result: 'success',
         endedAt: new Date().toISOString(),
         durationMs: Date.now() - toolStart,
+        boundaryBlocked,
+        boundaryReasonCode,
         seq: nextAuditSeq(),
       }),
     )
@@ -355,6 +425,8 @@ export async function executeTool(
         durationMs: Date.now() - toolStart,
         reasonCode: 'tool_execution_error',
         errorMessage: message,
+        boundaryBlocked,
+        boundaryReasonCode,
         seq: nextAuditSeq(),
       }),
     )
@@ -428,6 +500,23 @@ interface ModeGateArgs {
   matchedRuleIds: string[]
 }
 
+interface BoundaryGateArgs {
+  mode: ToolContext['permissionMode']
+  name: string
+  input: unknown
+  store: AppStore
+  riskLevel: string
+  matchedRuleIds: string[]
+  boundary: ReturnType<typeof evaluateBoundary>
+  enforcement: BoundaryEnforcement
+}
+
+interface BoundaryGateDecision {
+  denyResult: string | null
+  blocked: boolean
+  reasonCode?: BoundaryReasonCode
+}
+
 async function runGovernanceModeGate(args: ModeGateArgs): Promise<string | null> {
   const { mode, action, name, input, store, riskLevel, matchedRuleIds } = args
   const state = store.getState()
@@ -495,6 +584,136 @@ async function runGovernanceModeGate(args: ModeGateArgs): Promise<string | null>
   }
 
   return formatPermissionDenied('user_denied', `Tool ${name} was denied by user`, meta)
+}
+
+async function runBoundaryGate(args: BoundaryGateArgs): Promise<BoundaryGateDecision> {
+  const { mode, name, input, store, riskLevel, matchedRuleIds, boundary, enforcement } = args
+  const state = store.getState()
+  const traceBus = getTraceBus()
+  traceBus.emit({
+    stage: 'permission',
+    event: 'boundary_gate',
+    status: boundary.blocked ? 'error' : 'ok',
+    session_id: state.sessionId,
+    trace_id: state.traceId,
+    turn_id: state.currentTurnId ?? undefined,
+    span_id: createSpanId(),
+    payload: {
+      toolName: name,
+      mode,
+      riskLevel,
+      matchedRuleIds,
+      boundaryBlocked: boundary.blocked,
+      boundaryReasonCode: boundary.reasonCode,
+      boundaryEnforcement: enforcement,
+      boundaryDetails: boundary.details,
+    },
+  })
+
+  if (!boundary.blocked) {
+    return { denyResult: null, blocked: false }
+  }
+
+  const reasonCode = boundary.reasonCode
+  if (!reasonCode) {
+    return {
+      denyResult: formatPermissionDenied(
+        'rule_denied',
+        `Tool ${name} is blocked by boundary policy`,
+        {
+          toolName: name,
+          mode,
+          riskLevel,
+          matchedRuleIds,
+          boundaryBlocked: true,
+          boundaryDetails: boundary.details,
+        },
+      ),
+      blocked: true,
+    }
+  }
+
+  const meta: GovernanceMeta = {
+    toolName: name,
+    mode,
+    riskLevel,
+    matchedRuleIds,
+    boundaryBlocked: true,
+    boundaryReasonCode: reasonCode,
+    boundaryDetails: boundary.details,
+  }
+
+  if (enforcement === 'ask') {
+    if (mode === 'auto') {
+      return {
+        denyResult: formatPermissionDenied(
+          'approval_required_in_auto',
+          `Tool ${name} requires boundary approval in auto mode`,
+          meta,
+        ),
+        blocked: true,
+        reasonCode,
+      }
+    }
+
+    traceBus.emit({
+      stage: 'permission',
+      event: 'prompt_request',
+      status: 'start',
+      session_id: state.sessionId,
+      trace_id: state.traceId,
+      turn_id: state.currentTurnId ?? undefined,
+      span_id: createSpanId(),
+      payload: {
+        toolName: name,
+        mode,
+        reasonCode,
+        riskLevel,
+        boundaryBlocked: true,
+      },
+    })
+    const approved = await promptApproval(name, input, store)
+    traceBus.emit({
+      stage: 'permission',
+      event: 'prompt_result',
+      status: approved ? 'ok' : 'error',
+      session_id: state.sessionId,
+      trace_id: state.traceId,
+      turn_id: state.currentTurnId ?? undefined,
+      span_id: createSpanId(),
+      payload: {
+        toolName: name,
+        mode,
+        approved,
+        reasonCode: approved ? 'approved' : 'user_denied',
+        riskLevel,
+        boundaryBlocked: true,
+        boundaryReasonCode: reasonCode,
+      },
+    })
+    if (approved) {
+      return { denyResult: null, blocked: false, reasonCode }
+    }
+    return {
+      denyResult: formatPermissionDenied(
+        'user_denied',
+        `Tool ${name} was denied by user`,
+        meta,
+      ),
+      blocked: true,
+      reasonCode,
+    }
+  }
+
+  return {
+    denyResult: formatPermissionDenied(
+      reasonCode,
+      boundary.userMessage ?? `Tool ${name} is blocked by boundary policy`,
+      meta,
+    ),
+    blocked: true,
+    reasonCode,
+  }
 }
 
 function formatPermissionDenied(

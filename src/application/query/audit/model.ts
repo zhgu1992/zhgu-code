@@ -72,6 +72,8 @@ export interface AuditExecutionFinishedEvent extends AuditEventBase {
   duration_ms: number
   reason_code?: string
   error_message?: string
+  boundary_blocked?: boolean
+  boundary_reason_code?: string
 }
 
 interface CreateAuditExecutionFinishedInput extends AuditEventBaseInput {
@@ -81,6 +83,8 @@ interface CreateAuditExecutionFinishedInput extends AuditEventBaseInput {
   durationMs: number
   reasonCode?: string
   errorMessage?: string
+  boundaryBlocked?: boolean
+  boundaryReasonCode?: string
 }
 
 export type AuditEvent =
@@ -143,6 +147,8 @@ export function createAuditExecutionFinishedEvent(
     duration_ms: input.durationMs,
     reason_code: input.reasonCode,
     error_message: input.errorMessage,
+    boundary_blocked: input.boundaryBlocked,
+    boundary_reason_code: input.boundaryReasonCode,
   }
 }
 
@@ -248,6 +254,12 @@ export function parseAuditEvent(raw: unknown): AuditParseResult {
   if (raw.error_message !== undefined && typeof raw.error_message !== 'string') {
     return { ok: false, error: 'audit.execution_finished.error_message must be string when provided' }
   }
+  if (raw.boundary_blocked !== undefined && typeof raw.boundary_blocked !== 'boolean') {
+    return { ok: false, error: 'audit.execution_finished.boundary_blocked must be boolean when provided' }
+  }
+  if (raw.boundary_reason_code !== undefined && typeof raw.boundary_reason_code !== 'string') {
+    return { ok: false, error: 'audit.execution_finished.boundary_reason_code must be string when provided' }
+  }
 
   return {
     ok: true,
@@ -259,6 +271,8 @@ export function parseAuditEvent(raw: unknown): AuditParseResult {
       duration_ms: raw.duration_ms,
       reason_code: raw.reason_code,
       error_message: raw.error_message,
+      boundary_blocked: raw.boundary_blocked,
+      boundary_reason_code: raw.boundary_reason_code,
     } as AuditExecutionFinishedEvent,
   }
 }

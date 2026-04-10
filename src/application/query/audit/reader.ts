@@ -27,6 +27,8 @@ export interface AuditReplaySummary {
   startedAt?: string
   endedAt?: string
   success?: boolean
+  boundaryBlocked?: boolean
+  boundaryReasonCode?: string
 }
 
 export interface AuditRequestReplay {
@@ -115,6 +117,8 @@ export function replayAuditRequest(events: AuditEvent[], requestId: string): Aud
     startedAt: requested?.started_at,
     endedAt: finished?.ended_at,
     success: finished?.success,
+    boundaryBlocked: finished?.boundary_blocked,
+    boundaryReasonCode: finished?.boundary_reason_code,
   }
 
   return {
