@@ -2,6 +2,7 @@ import { Command } from 'commander'
 import { startREPL } from '../core/repl.js'
 import { VERSION } from '../definitions/constants/index.js'
 import { getAPIConfig } from '../services/config.js'
+import { buildContextView, loadLatestContextSnapshotFromTrace } from '../application/query/context-view.js'
 
 export const program = new Command()
 
@@ -9,6 +10,15 @@ program
   .name('zhgu-code')
   .description('AI Coding Assistant CLI')
   .version(VERSION)
+
+program
+  .command('context')
+  .description('Show latest context health snapshot from query trace')
+  .action(async () => {
+    const latest = await loadLatestContextSnapshotFromTrace()
+    const view = buildContextView(latest)
+    console.log(JSON.stringify(view, null, 2))
+  })
 
 // Main command - start REPL (default)
 program

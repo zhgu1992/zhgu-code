@@ -26,6 +26,8 @@ function createMockStore(overrides: Partial<AppState> = {}) {
     currentTurnId: null,
     turnState: 'idle',
     turnStopReason: null,
+    lastContextHealthSnapshot: null,
+    lastContextHealthUpdatedAt: null,
     pendingTool: null,
     toolProgress: null,
     inputTokens: 0,
@@ -35,6 +37,11 @@ function createMockStore(overrides: Partial<AppState> = {}) {
     setContext: (context) => set({ context }),
     setCurrentTurnId: (turnId) => set({ currentTurnId: turnId }),
     setTurnState: (turnState, reason = null) => set({ turnState, turnStopReason: reason }),
+    setContextHealthSnapshot: (snapshot, updatedAt = new Date().toISOString()) =>
+      set({
+        lastContextHealthSnapshot: snapshot,
+        lastContextHealthUpdatedAt: updatedAt,
+      }),
     applyTurnTransition: (transition: QueryTurnTransition) => set({
       currentTurnId: transition.turnId,
       turnState: transition.to,

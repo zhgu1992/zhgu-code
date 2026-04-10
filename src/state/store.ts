@@ -3,6 +3,7 @@ import { create, type UseBoundStore, type StoreApi } from 'zustand'
 import type { Message } from '../definitions/types/index.js'
 import type { Context } from '../core/context.js'
 import type { PermissionMode } from '../definitions/types/permission.js'
+import type { ContextHealthSnapshot } from '../application/query/context-health.js'
 import { createSessionId, createSpanId, createTraceId } from '../observability/ids.js'
 import { getTraceBus } from '../observability/trace-bus.js'
 import { JsonlTranscriptWriter } from '../application/query/transcript/writer.js'
@@ -44,6 +45,8 @@ export interface AppState {
   currentTurnId: string | null
   turnState: QueryTurnState
   turnStopReason: QueryTurnStopReason | null
+  lastContextHealthSnapshot: ContextHealthSnapshot | null
+  lastContextHealthUpdatedAt: string | null
 
   // Messages
   messages: Message[]
@@ -73,6 +76,7 @@ export interface AppActions {
   setCurrentTurnId: (turnId: string | null) => void
   setTurnState: (state: QueryTurnState, reason?: QueryTurnStopReason | null) => void
   applyTurnTransition: (transition: QueryTurnTransition) => void
+  setContextHealthSnapshot: (snapshot: ContextHealthSnapshot, updatedAt?: string) => void
 
   // Messages
   addMessage: (message: Message) => void
@@ -163,6 +167,8 @@ export function createStore(options: CreateStoreOptions): AppStore {
     currentTurnId: null,
     turnState: 'idle',
     turnStopReason: null,
+    lastContextHealthSnapshot: null,
+    lastContextHealthUpdatedAt: null,
     messages: [],
     isStreaming: false,
     streamingText: null,
@@ -179,6 +185,12 @@ export function createStore(options: CreateStoreOptions): AppStore {
     setCurrentTurnId: (turnId: string | null) => set({ currentTurnId: turnId }),
 
     setTurnState: (turnState, reason = null) => set({ turnState, turnStopReason: reason }),
+
+    setContextHealthSnapshot: (snapshot, updatedAt = new Date().toISOString()) =>
+      set({
+        lastContextHealthSnapshot: snapshot,
+        lastContextHealthUpdatedAt: updatedAt,
+      }),
 
     applyTurnTransition: (transition) => {
       const state = get()

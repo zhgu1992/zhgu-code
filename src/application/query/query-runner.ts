@@ -745,6 +745,7 @@ function emitContextHealthSnapshot(args: {
   snapshot: ContextHealthSnapshot
 }): void {
   const { traceBus, state, turnId, turnSpanId, snapshot } = args
+  state.setContextHealthSnapshot(snapshot)
   traceBus.emit({
     stage: 'query',
     event: 'context_health_snapshot',
