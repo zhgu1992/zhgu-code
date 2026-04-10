@@ -85,7 +85,7 @@ reader 最小能力：
 
 ### 6.1 数据来源（不是由 `.trace/trace.jsonl` 组装）
 
-- `transcript` 与 `trace` 都默认写在 `.trace/` 目录下，但属于两条独立流水线：
+- `transcript` 与 `trace` 都默认写在 [.trace/](../../.trace) 目录下，但属于两条独立流水线：
   - trace 文件：`.trace/trace.jsonl`
   - transcript 文件：`.trace/transcript.jsonl`
 - transcript 的事实来源是 `state.addMessage(...)` 写入时机，不是离线从 trace 回推。
@@ -221,3 +221,4 @@ bun run transcript:replay -- --latest --json --readable
 
 - `name` / `input` / `result` / `result_found`：`--readable` 可读字段
 - `toolUseId` / `toolUseMessageId` / `toolResultMessageId`：非 `--readable` 原始关联字段
+

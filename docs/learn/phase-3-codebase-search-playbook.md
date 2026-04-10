@@ -2,7 +2,7 @@
 
 > 目的：当你说“我要改某个功能”时，快速定位到该改的文件与调用链，避免盲改。
 >
-> 这份文档是 `docs/tools/search-and-navigation.mdx` 的实战版速查。
+> 这份文档是 [docs/tools/search-and-navigation.mdx](../../../docs/tools/search-and-navigation.mdx) 的实战版速查。
 
 ## 1. 先建立心智模型
 
@@ -104,3 +104,4 @@ rg -n "FEATURE_FLAG|configKey|ENV_NAME" src
 ---
 
 如果你只想记一句话：大仓库改功能的核心是“`rg` 快速定位 + 读文件确认 + 缩小范围后再改”，而不是直接编辑。
+

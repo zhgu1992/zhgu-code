@@ -2,7 +2,7 @@
 
 > 更新时间：2026-04-09  
 > 文档定位：记录当前已落地的架构事实与核心设计模块  
-> 说明：规划与路线图见 `docs/roadmap/master-roadmap.md`，本文件只描述“现在系统是怎么工作的”
+> 说明：规划与路线图见 [docs/roadmap/master-roadmap.md](../roadmap/master-roadmap.md)，本文件只描述“现在系统是怎么工作的”
 
 ## 1. 系统目标与边界
 
@@ -180,7 +180,7 @@ UI 设计取向（当前）：
 当前收集内容：
 - `cwd`
 - git 分支与简要状态（若可用）
-- 多级 `CLAUDE.md`（用户级、项目级、父级）
+- 多级 [CLAUDE.md](../../../CLAUDE.md)（用户级、项目级、父级）
 - memory 目录中的 markdown 内容
 - 基础系统信息（平台、Node 版本、时间）
 
@@ -215,10 +215,10 @@ Phase 0 过渡实现：
 
 ## 11. Phase 0 冻结产物（事实）
 
-- `docs/adr/ADR-001-query-plane.md`
-- `docs/adr/ADR-002-execution-permission-plane.md`
-- `docs/adr/ADR-003-integration-plane.md`
-- `docs/adr/ADR-004-orchestration-plane.md`
+- [docs/adr/ADR-001-query-plane.md](../adr/ADR-001-query-plane.md)
+- [docs/adr/ADR-002-execution-permission-plane.md](../adr/ADR-002-execution-permission-plane.md)
+- [docs/adr/ADR-003-integration-plane.md](../adr/ADR-003-integration-plane.md)
+- [docs/adr/ADR-004-orchestration-plane.md](../adr/ADR-004-orchestration-plane.md)
 - `src/architecture/contracts/query-engine.ts`
 - `src/architecture/contracts/tool-runtime.ts`
 - `src/architecture/contracts/provider.ts`
@@ -325,7 +325,7 @@ Phase 0 过渡实现：
 
 ### 15.2 九大模块拆分（原版 Claude -> rewrite 对标）
 
-| 模块 | 核心职责 | 原版参考入口（`src/`） | rewrite 当前入口（`rewrite/src/`） | 当前级别 | 关键缺口 |
+| 模块 | 核心职责 | 原版参考入口（[src/](../../../src)） | rewrite 当前入口（[rewrite/src/](../../src)） | 当前级别 | 关键缺口 |
 |---|---|---|---|---|---|
 | M1 交互接入层 | CLI 参数、REPL 交互、命令入口、多模式启动 | `main.tsx` `entrypoints/*` `cli/*` `commands/*` `screens/*` `components/*` | `entrypoint.ts` `cli/*` `ui/*` `core/repl.ts` | L1-L2 | 命令体系、运行模式和交互能力面不足 |
 | M2 会话编排层 | 会话生命周期、transcript、成本累计、回合管理 | `QueryEngine.ts` `history.ts` `cost-tracker.ts` | `core/repl.ts` `state/store.ts` | L1 | 仅基础回路，无完整会话状态机与持久化治理 |
@@ -334,7 +334,7 @@ Phase 0 过渡实现：
 | M5 工具执行与权限层 | 工具注册/执行、权限判定、沙箱边界、审计 | `tools.ts` `tools/*` `Tool.ts` `utils/permissions/*` `utils/sandbox/*` | `tools/registry.ts` `tools/executor.ts` `platform/permission/*` | L2- | 风险分级、策略规则、审计与沙箱治理不足 |
 | M6 集成生态层 | Provider 抽象、MCP/Plugin/Skill 接入、远程能力协同 | `services/api/*` `services/mcp/*` `services/plugins/*` `plugins/*` `skills/*` | `api/client.ts` `platform/provider/*` `platform/integration/*` | L1 | 单 provider，MCP/Plugin/Skill 未接入主平面 |
 | M7 任务与 Agent 编排层 | Plan/Task/Agent 生命周期、多任务执行、协作协议 | `tasks/*` `Task.ts` `commands/tasks/*` `buddy/*` `coordinator/*` | `application/orchestrator/index.ts`（noop） | L0-L1 | 仅契约占位，无任务模型、执行器与并发治理 |
-| M8 观测与治理层 | Trace/Telemetry、成本/性能、断言与回放、质量门禁 | `utils/telemetry/*` `services/analytics/*` `commands/ant-trace/*` | `observability/*` `docs/trace-model.md` | L2（Phase 0.1） | 外部遥测平台接入与跨会话关联待补齐 |
+| M8 观测与治理层 | Trace/Telemetry、成本/性能、断言与回放、质量门禁 | `utils/telemetry/*` `services/analytics/*` `commands/ant-trace/*` | `observability/*` [docs/trace-model.md](../trace-model.md) | L2（Phase 0.1） | 外部遥测平台接入与跨会话关联待补齐 |
 | M9 平台基础设施层 | 配置、迁移、守护进程、远程运行、通用基建 | `services/*` `migrations/*` `daemon/*` `server/*` `environment-runner/*` | `services/config.ts`（最小） | L0-L1 | 基础设施平面尚未成型 |
 
 ### 15.3 依赖与边界（必须遵守）
@@ -379,7 +379,7 @@ M9 平台基础设施
 
 ### 15.5 每个模块的一一对标模板（落地执行）
 
-后续每做一个模块，都按以下模板补充到 `docs/architecture/system-design.md` 对应章节：
+后续每做一个模块，都按以下模板补充到 [docs/architecture/system-design.md](./system-design.md) 对应章节：
 
 ```md
 #### 模块：M?
@@ -422,3 +422,4 @@ M9 平台基础设施
 判定标准：
 - 每个模块完成后，必须产出“原版入口清单 + rewrite 实现清单 + 差距表 + 下一步计划”
 - 每个批次结束后，必须跑一次全量质量门（build/type/lint/test + 模块断言）
+

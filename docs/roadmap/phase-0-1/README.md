@@ -26,7 +26,7 @@
 
 ## 交付
 
-1. `docs/trace-model.md`
+1. [docs/trace-model.md](../../trace-model.md)
 2. `src/observability/*`
 3. `scripts/trace-tail.sh`
 4. `src/__tests__/phase0_1_observability.test.ts`
@@ -35,3 +35,4 @@
 
 1. 生成并回放 `.trace/trace.jsonl`
 2. 断言规则可识别链路异常
+

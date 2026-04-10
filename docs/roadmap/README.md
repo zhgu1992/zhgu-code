@@ -4,14 +4,14 @@
 
 ## 总览
 
-1. 总路线图（全局基线）: `docs/roadmap/master-roadmap.md`
-2. Phase 0: `docs/roadmap/phase-0/README.md`
-3. Phase 0.1: `docs/roadmap/phase-0-1/README.md`
-4. Phase 1: `docs/roadmap/phase-1/README.md`
-5. Phase 2: `docs/roadmap/phase-2/README.md`
-6. Phase 3: `docs/roadmap/phase-3/README.md`
-7. Phase 4: `docs/roadmap/phase-4/README.md`
-8. Phase 5: `docs/roadmap/phase-5/README.md`
+1. 总路线图（全局基线）: [docs/roadmap/master-roadmap.md](./master-roadmap.md)
+2. Phase 0: [docs/roadmap/phase-0/README.md](./phase-0/README.md)
+3. Phase 0.1: [docs/roadmap/phase-0-1/README.md](./phase-0-1/README.md)
+4. Phase 1: [docs/roadmap/phase-1/README.md](./phase-1/README.md)
+5. Phase 2: [docs/roadmap/phase-2/README.md](./phase-2/README.md)
+6. Phase 3: [docs/roadmap/phase-3/README.md](./phase-3/README.md)
+7. Phase 4: [docs/roadmap/phase-4/README.md](./phase-4/README.md)
+8. Phase 5: [docs/roadmap/phase-5/README.md](./phase-5/README.md)
 
 ## 状态规范
 
@@ -21,7 +21,7 @@
 
 ## 大 Phase 对标规范（必须）
 
-每个大 Phase 开发前必须先完成“源码对标结论”，并写入对应 `phase-*/README.md`。
+每个大 Phase 开发前必须先完成“源码对标结论”，并写入对应 [phase-*/README.md](./)。
 
 固定顺序：
 
@@ -48,7 +48,7 @@
 执行规则：
 
 1. 若下列任一项未讨论，必须先讨论，不进入代码实现。
-2. 讨论结论需记录到对应 `phase-*/README.md` 的 WIP 记录表。
+2. 讨论结论需记录到对应 [phase-*/README.md](./) 的 WIP 记录表。
 3. 未通过门禁的 WIP 状态只能是 `Pending`，不得标记 `In Progress`。
 
 必问清单（最小集合）：

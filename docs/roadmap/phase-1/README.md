@@ -79,7 +79,7 @@
 | `wip1-c` | 已补充（token/context 回合级预算） | 已补充（从“统计指标”升级为“执行控制”） | 已补充（preflight + streaming + done 三段 guard） | 已补充（BGT-001~005） | 已补充（stop-only 策略，单点回滚 query-runner 接线） | In Progress |
 | `wip1-d` | 已补充（统一错误语义，不在 WP1-D 引入复杂自动编排） | 已补充（错误从“散落异常”升级为“状态机可判定动作”） | 已补充（`errors.ts` 分类 + `recovery.ts` 动作矩阵 + 明确 stop/retry/fatal） | 待补充（DREC-001~008） | 已补充（先保守矩阵，复杂恢复下沉至 `wip1-h`） | In Progress |
 | `wip1-f` | 已补充（trace 已有迁移事件，但缺少语义断言，需防“有事件但语义错”） | 已补充（迁移证据从“可见”升级为“可断言”） | 已补充（`turn_transition` 锚点、合法迁移与终态对齐规则） | 已补充（FTR-001~005 + FTR-E2E-001~003） | 已补充（`dropped_events>0` 时降级跳过严格链路断言） | Done |
-| `wip1-h` | Phase 1 收尾硬化：只处理恢复可靠性，不引入新产品能力 | 已补充（恢复路径从“可跑”升级为“可验证稳定”） | 待讨论（错误子类、分层重试、幂等保护、恢复可观测） | 待补充（故障注入/回归门） | 已补充（非 M4 阻塞，拆分增量落地，可顺延但必须先于 Phase 2 大规模扩展） | Planned |
+| `wip1-h` | 已补充（见 WP1-H 设计核心 Why/边界） | 已补充（恢复路径从“可跑”升级为“可验证稳定”） | 已补充（错误子类、分层重试、幂等保护、恢复可观测） | 已补充（RHD-001~010） | 已补充（非 M4 阻塞，拆分增量落地，可顺延但必须先于 Phase 2 大规模扩展） | In Progress |
 
 ## 阶段完成标准（DoD）
 
@@ -356,7 +356,7 @@
 - 目标：session 级 jsonl transcript，支持人工回放核对
 - 产出：
   - `src/application/query/transcript/`（writer/reader/model）
-  - `docs/transcript-model.md`（事件字段与约束）
+  - [docs/transcript-model.md](../../transcript-model.md)（事件字段与约束）
 - 验收：
   - 每轮记录 user/assistant 最终可见内容
   - 记录 `tool_use` 与 `tool_result` 关联
@@ -438,7 +438,7 @@
 3. 完成判定（Definition of Done for WP1-E）
 
 1. `TRC-001 ~ TRC-006` 全部通过。
-2. 文档 `docs/transcript-model.md` 明确字段、约束和回放口径。
+2. 文档 [docs/transcript-model.md](../../transcript-model.md) 明确字段、约束和回放口径。
 3. transcript 能稳定复原最小主链路：`input -> tool_use/tool_result -> output`。
 4. 明确与 trace 的职责边界，无字段语义重叠造成的双源冲突。
 
@@ -494,7 +494,7 @@
 完成判定：
 1. `FTR-001~005` 全部通过。
 2. 现有 `phase0_1_observability` 回归通过（兼容旧断言）。
-3. `docs/trace-model.md` 同步更新 `turn_transition` 断言语义。
+3. [docs/trace-model.md](../../trace-model.md) 同步更新 `turn_transition` 断言语义。
 
 4. 风险与回滚
 - 风险：严格断言可能在高压丢事件场景误判失败。
@@ -516,7 +516,7 @@
 
 3. 已将 WP1-F 门禁并入 Phase 1 验收命令
 - 目标：避免只跑单测不跑回放校验。
-- 变更点：补充本文件与 `docs/roadmap/master-roadmap.md` 的命令列表。
+- 变更点：补充本文件与 [docs/roadmap/master-roadmap.md](../master-roadmap.md) 的命令列表。
 - 建议命令：
   - `bun test src/__tests__/phase1_trace_transition_assertions.test.ts`
   - `bun test src/__tests__/phase1_trace_transition_e2e.test.ts`
@@ -566,6 +566,94 @@
   - 工具重试具备最小幂等保障（避免重复副作用）
   - 恢复事件可用于回放诊断（attempt/success/fail 可追踪）
 
+#### WP1-H 设计核心（必须先达成共识）
+
+0. 为什么做（Why）
+- 当前 `WP1-D` 已建立基础恢复矩阵，但仍偏“粗粒度 + 单层重试”，能跑通但在边界场景下稳定性不足。
+- 现有工具重试没有显式幂等保护，遇到“带副作用”的工具失败重试时，存在重复执行风险。
+- `WP1-H` 的目标不是扩能力，而是把“恢复可用”升级为“恢复可证明稳定”，为 Phase 2 扩展提供前置安全门。
+
+1. 问题与边界（Scope）
+- In Scope：
+  - 在现有错误大类下补充子类语义（保持向后兼容）。
+  - 建立分层重试策略（provider/tool 分层预算与退避）。
+  - 增加工具重试幂等保护（可重试/不可重试判定）。
+  - 增强恢复 trace 事件和断言，支持回放诊断。
+- Out of Scope：
+  - 新 provider 能力接入或协议升级。
+  - 跨会话自动恢复、断点续跑编排。
+  - 引入复杂交互式恢复流程（人工多轮确认编排）。
+
+2. 核心设计（V1.5，增量式）
+- 错误子类细化（`errors.ts`）：
+  - 在不破坏 `QueryErrorClass` 主类兼容的前提下，补充 `subclass`（如 `timeout`/`rate_limit`/`tool_io`/`tool_side_effect_risk`）。
+  - 若无法确定子类，降级为主类默认子类 `unknown_subclass`，避免误判。
+- 分层重试（`recovery.ts`）：
+  - `provider` 层：网络抖动/限流可重试，使用保守退避与上限预算。
+  - `tool` 层：仅在“可幂等 + 可恢复错误”条件下允许重试。
+  - 全局约束：任一 turn 的恢复总尝试次数有硬上限，防止异常循环。
+- 幂等保护（`tool-orchestrator.ts`）：
+  - 引入最小判定：`safe_to_retry=true` 才允许工具自动重试。
+  - 对不可判定或明确高副作用工具，命中可恢复错误时直接 `stop/retry_exhausted`，不做自动重试。
+  - 所有“被幂等保护拦截”的重试都写 trace 原因，避免静默失败。
+- 可观测与断言（`observability/*`）：
+  - 恢复链路标准事件：`recovery_started`、`retry_scheduled`、`retry_succeeded`、`retry_exhausted`、`recovery_stopped`。
+  - 必含字段：`source/error_class/error_subclass/action/attempt/max_attempts/backoff_ms/blocked_by_idempotency`。
+
+3. 执行策略（分批落地）
+1. 批次 A：先落文档与类型兼容层（子类字段 + 不破坏既有测试）。
+2. 批次 B：接入分层重试预算与全局上限（保持默认策略保守）。
+3. 批次 C：接入工具幂等保护，并补恢复 trace 字段与断言。
+4. 批次 D：故障注入回归门补齐，形成 Phase 2 前置门。
+
+4. 与其它 WP 的耦合关系
+- 依赖 `WP1-D` 的主类恢复语义，不重写主类，只做增强。
+- 不改变 `WP1-E` transcript 事件模型，仅补 trace 侧恢复可观测字段。
+- 复用 `WP1-F` 的“迁移即证据”框架，把恢复链路变为可断言序列。
+- 与 `WP1-G` 联动，纳入统一门禁命令。
+
+#### WP1-H 验证说明（具体 Case）
+
+1. 建议测试文件
+- `src/__tests__/phase1_recovery_hardening.test.ts`（WP1-H 新增）
+- `src/__tests__/phase1_recovery_matrix.test.ts`（WP1-D 回归）
+- `src/__tests__/phase1_trace_transition_assertions.test.ts`（恢复事件断言回归）
+
+2. 必测用例清单（最小集合）
+
+| Case ID | 场景 | Given | When | Then |
+|---|---|---|---|---|
+| `RHD-001` | 子类识别 | provider timeout 文案 | 分类错误 | `error_class=network_transient` 且 `error_subclass=timeout` |
+| `RHD-002` | 子类降级兜底 | 未知错误文案 | 分类错误 | 不误判为可恢复，降级到保守路径 |
+| `RHD-003` | provider 分层重试 | provider transient 错误 | 执行恢复 | 在预算内重试并写入 attempt/backoff |
+| `RHD-004` | provider 重试耗尽 | 连续 transient 失败 | 超出预算 | 触发 `retry_exhausted` 并终止 |
+| `RHD-005` | 工具可幂等重试 | `safe_to_retry=true` 且 transient | 工具失败 | 允许重试且成功后恢复到 `streaming` |
+| `RHD-006` | 工具不可幂等拦截 | `safe_to_retry=false` 且 transient | 工具失败 | 禁止自动重试并记录 `blocked_by_idempotency=true` |
+| `RHD-007` | 恢复总预算上限 | provider+tool 连续错误 | 多次恢复 | 达到总上限后强制终止，防止循环 |
+| `RHD-008` | 恢复事件完整性 | 任一重试链路 | 回放 trace | 包含 started/scheduled/succeeded|exhausted 事件序列 |
+| `RHD-009` | 与状态机一致性 | 恢复成功/失败两条链路 | 回放断言 | `recovering -> streaming|stopped` 与事件一致 |
+| `RHD-010` | 不破坏既有矩阵 | 运行 WP1-D 用例 | 全量测试 | `DREC-001~008` 全部继续通过 |
+
+3. 完成判定（Definition of Done for WP1-H）
+1. `RHD-001 ~ RHD-010` 全部通过。
+2. 新增恢复增强后，不引入 `phase1_*` 现有回归失败。
+3. 对“不可幂等工具错误重试”具备默认保守保护，不出现重复副作用重试。
+4. 形成 Phase 2 前置门结论：通过或带风险豁免（需文档化）。
+
+4. 风险与回滚
+- 风险：幂等判定过严导致恢复成功率下降。
+- 风险：重试预算设置不当导致用户感知延迟增加。
+- 回滚策略：
+  - 保留 `WP1-D` 基础矩阵为 fallback（关闭子类增强与幂等门控）。
+  - 通过配置或常量开关把 `WP1-H` 增强策略回退到保守 stop-only。
+
+#### WP1-H 建议执行命令
+
+1. `bun test src/__tests__/phase1_recovery_hardening.test.ts`
+2. `bun test src/__tests__/phase1_recovery_matrix.test.ts`
+3. `bun test src/__tests__/phase1_trace_transition_assertions.test.ts`
+4. `bun test src/__tests__/phase1_query_engine.test.ts`
+
 ## 依赖与并行策略
 
 1. 串行主链：`WP1-A -> WP1-B -> (WP1-C, WP1-D) -> WP1-E -> WP1-F -> WP1-G -> WP1-H`
@@ -594,5 +682,6 @@
 1. 输出“与原版 Query/Tracing/Transcript 回对标”结论
 2. 明确已对齐项、未对齐项、后续补齐计划
 3. 同步更新：
-  - `docs/roadmap/master-roadmap.md`（阶段状态）
-  - `docs/architecture/system-design.md`（事实口径）
+  - [docs/roadmap/master-roadmap.md](../master-roadmap.md)（阶段状态）
+  - [docs/architecture/system-design.md](../../architecture/system-design.md)（事实口径）
+
