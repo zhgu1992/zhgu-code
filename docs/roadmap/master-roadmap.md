@@ -225,8 +225,10 @@ Phase 1 当前门禁命令（补充 / WP1-F）：
 Phase 2 当前推进状态（2026-04-10）：
 1. `wip2-01` 已完成：对标结论、超越目标、WIP 门禁、依赖与里程碑已在 [docs/roadmap/phase-2/README.md](./phase-2/README.md) 固化，可直接进入实现排期。
 2. `wip2-02`（权限规则引擎）已完成：`platform/permission/engine.ts` 与 `phase2_permission_engine.test.ts` 已落地，且未提前改执行链路。
-3. 进入 `wip2-04` 前置门保持不变：必须先冻结 `wip2-02/03` 接口，再接入执行器。
-4. 当前串行主链保持：`wip2-02 -> wip2-03 -> wip2-04 -> wip2-05 -> wip2-06 -> wip2-07`。
+3. `wip2-03`（风险分级模型）已完成：`platform/permission/risk.ts` 与 `phase2_risk_model.test.ts` 已落地，覆盖 `RSK-001~005`。
+4. `wip2-04`（执行入口治理接入）门禁讨论已完成：`WP2-C` 已补齐 Why/边界/决策矩阵/DoD/回滚，接口保持 `executeTool(name, input, store)` 不变。
+5. 进入 `wip2-04` 实现前置门保持不变：必须先冻结 `wip2-02/03` 接口，再按 `risk -> permission -> mode_gate -> execute/deny` 接线。
+6. 当前串行主链保持：`wip2-02 -> wip2-03 -> wip2-04 -> wip2-05 -> wip2-06 -> wip2-07`。
 
 ### Phase 3：Integration Plane（MCP/Plugin/Skill）
 目标：建立“能力接入层”，而非继续硬编码工具。

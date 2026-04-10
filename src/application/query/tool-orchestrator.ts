@@ -41,7 +41,7 @@ export async function executeToolAndPersist(
   state.setStreamingText(`🔧 Executing: ${call.name}...`)
   while (true) {
     const result = await executeTool(call.name, call.input, store)
-    const deniedByUser = isToolDeniedByUser(result, call.name)
+    const deniedByUser = isToolPermissionDenied(result, call.name)
 
     if (
       state.permissionMode === 'ask' &&
@@ -200,6 +200,10 @@ export async function executeToolAndPersist(
   }
 }
 
-function isToolDeniedByUser(result: string, toolName: string): boolean {
-  return result.startsWith(`Tool ${toolName} was denied by user`)
+function isToolPermissionDenied(result: string, toolName: string): boolean {
+  const normalized = result.toLowerCase()
+  return (
+    result.startsWith(`Tool ${toolName} was denied by user`) ||
+    normalized.includes('permission denied')
+  )
 }

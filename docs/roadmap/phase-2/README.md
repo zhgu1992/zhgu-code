@@ -77,7 +77,7 @@
 |---|---|---|---|---|---|---|
 | `wip2-01` 对标与门禁基线 | Phase 2 模板态不可直接实施，先收敛决策口径与门禁流程 | 一次性固化对标结论与执行门禁，避免后续漂移 | 完整填写对标、超越目标、WIP 记录、里程碑与命令清单 | Phase 文档可直接排期，且无待补占位 | 不通过时仅回退文档 | Completed |
 | `wip2-02` 权限规则引擎 | 仅有类型定义，无规则匹配执行逻辑 | 规则判定收敛到平台层，统一优先级语义 | 新增 `platform/permission/engine.ts`，支持 source/scope 与 `deny > ask > allow` | `PRE-001~004` 通过 | 开关回退到旧 `permissionMode` | Completed |
-| `wip2-03` 风险分级模型 | 无统一 `ToolRiskLevel` 计算，风险无法动态升级 | 风险随输入动态升级，不只看工具名 | 新增 `platform/permission/risk.ts`，静态基线 + 输入特征升级 | `RSK-001~005` 通过 | 分级异常时回退静态基线 | Pending |
+| `wip2-03` 风险分级模型 | 无统一 `ToolRiskLevel` 计算，风险无法动态升级 | 风险随输入动态升级，不只看工具名 | 新增 `platform/permission/risk.ts`，静态基线 + 输入特征升级 | `RSK-001~005` 通过 | 分级异常时回退静态基线 | Completed |
 | `wip2-04` 执行入口治理接入 | `executeTool` 仍是简单审批流，拒绝语义不一致 | 不改调用方签名前提下接入完整治理流水线 | `tools/executor.ts` 接入 `risk -> permission -> execute/deny` | `EXE-001~006` 通过 | feature flag 退回旧执行路径 | Pending |
 | `wip2-05` 审计事件链路 | 审计模型未持久化，无法追溯决策链路 | 构建“请求-决策-执行-结果”全链路可追溯 | 新增 audit emitter/writer，关联 trace span/requestId | `AUD-001~005` 通过 | 审计写入失败降级 trace-only | Pending |
 | `wip2-06` Bash/文件边界硬化 | 文件写入/shell 高危路径缺统一边界 | 高风险默认可控，优先阻断不可逆副作用 | 文件路径边界检查 + shell 高危模式兜底 + 网络策略补强 | `HARD-001~008` 通过 | 可临时降级为 ask-only | Pending |
@@ -133,11 +133,98 @@
 - 产出：`risk.ts` + `phase2_risk_model.test.ts`。
 - 验收：shell/file/network/external 升级路径可测试。
 
+#### WP2-B 设计核心（必须先达成共识）
+
+1. 为什么做（Why）
+- 当前执行入口主要依赖 `permissionMode` 粗粒度分支，缺少统一风险判定。
+- 若不先冻结风险计算口径，`wip2-04` 接入治理链路时会出现“同工具不同输入却同策略”的误判。
+
+2. 问题与边界
+- In Scope：`ToolRiskLevel` 计算、输入特征升级规则、稳定 `reasonCode` 输出。
+- Out of Scope：执行器接线（`wip2-04`）、审计落库（`wip2-05`）、边界阻断实现（`wip2-06`）。
+
+3. 核心设计
+- 新增 `assessToolRisk(toolName, input, cwd)`，输出 `{ baselineLevel, riskLevel, reasonCodes }`。
+- 基线分级（静态）：
+  - `low`：`Read` / `Glob` / `Grep` / `AskUserQuestion`
+  - `medium`：`Write` / `Edit`
+  - `high`：`Bash` / `WebFetch` / `WebSearch`
+- 动态升级（只升不降）：
+  - Shell：命中破坏性模式（如 `rm -rf`、`mkfs`、`dd`）升级为 `critical`。
+  - File：写入或编辑目标越过工作区边界，或命中敏感系统路径时升级为 `high/critical`。
+  - Network：异常协议、可疑目标或外部高风险访问特征升级为 `critical`。
+- 决策要求：同一输入必须产生确定性风险结果，不允许随机分级。
+
+4. 验证 Case（DoD）
+- `RSK-001` 工具静态基线分级断言通过。
+- `RSK-002` Bash 破坏性命令触发 `high -> critical` 升级。
+- `RSK-003` 文件越界与敏感路径触发升级并返回原因码。
+- `RSK-004` 网络异常目标触发升级并返回原因码。
+- `RSK-005` 未命中升级条件时保持基线且结果可重复。
+
+5. 风险与回滚
+- 提供 `phase2RiskModelEnabled` 开关；异常时回退静态基线。
+- 若风险评估导致前置门回归失败，立即回滚到旧 `permissionMode` 粗分支。
+
 ### WP2-C：执行入口治理接入（对应 `wip2-04`）
 
 - 目标：在不改执行接口的前提下接入治理链路。
 - 产出：`executor.ts` 治理接线 + 结构化拒绝语义。
 - 验收：`auto/ask/plan` 行为一致，拒绝链路结构化。
+
+#### WP2-C 设计核心（必须先达成共识）
+1. 为什么做（Why）
+- `executeTool` 当前仍以 `permissionMode` 粗分支为主，`ask` 走弹窗、`auto/plan` 直接放行，决策来源不可解释。
+- 拒绝结果目前主要是自然语言字符串，恢复层与 UI 层难以稳定识别“谁拒绝、为什么拒绝”。
+- `wip2-02/03` 已提供规则与风险能力，`wip2-C` 的任务是把“可计算”接成“可执行”。
+
+2. 问题与边界
+- In Scope：`tools/executor.ts` 统一治理流水线、模式决策矩阵、结构化拒绝语义、权限决策 trace 事件。
+- Out of Scope：审计落库与查询恢复（`wip2-05`）、高危边界阻断细则（`wip2-06`）、工具内部能力改造。
+
+3. 核心设计
+- 接口不变：继续使用 `executeTool(name, input, store): Promise<string>`，避免影响 `query-runner/tool-orchestrator` 调用方。
+- 增加总开关：`phase2ExecutorGovernanceEnabled`（默认开启）；关闭时回退现有 `permissionMode` 粗分支逻辑。
+- 执行链路统一为 `risk -> permission -> mode_gate -> execute/deny`：
+  1. `assessToolRisk(name, input, cwd)` 计算 `{ baselineLevel, riskLevel, reasonCodes }`。
+  2. `evaluatePermission(rules, { toolName, riskLevel })` 得到 `{ action, matchedRuleIds, reason }`。
+  3. 根据 `permissionMode + action` 进入模式门控（见矩阵）。
+  4. `allow` 才进入 `tool.execute`；`deny` 返回结构化拒绝，并写 trace。
+- 模式门控矩阵（统一语义）：
+
+| mode \\ action | `allow` | `ask` | `deny` |
+|---|---|---|---|
+| `auto` | 执行 | 拒绝（`approval_required_in_auto`） | 拒绝（`rule_denied`） |
+| `ask` | 执行 | 发起审批；通过后执行，拒绝则 `user_denied` | 拒绝（`rule_denied`） |
+| `plan` | 拒绝（`plan_mode_blocked`） | 拒绝（`plan_mode_blocked`） | 拒绝（`plan_mode_blocked`） |
+
+- 结构化拒绝语义（最小字段）：
+  - `reasonCode`：稳定机器码（如 `rule_denied`/`user_denied`/`plan_mode_blocked`）。
+  - `userMessage`：对用户可读信息。
+  - `meta`：`toolName/riskLevel/matchedRuleIds/mode`。
+- 兼容约束：拒绝文本仍需包含 `permission denied` 语义关键词，避免 Phase 1 既有错误分类回归。
+- 观测要求：新增 `permission.decision`、`permission.prompt_request`、`permission.prompt_result` 事件，事件 payload 必含 `reasonCode` 与 `riskLevel`。
+
+4. 验证 Case（DoD）
+- `EXE-001` `auto + allow`：命中允许规则时直接执行工具并返回结果。
+- `EXE-002` `auto + ask`：不进入弹窗，直接拒绝并返回 `approval_required_in_auto`。
+- `EXE-003` `ask + ask + approve`：触发审批并在批准后执行。
+- `EXE-004` `ask + ask + reject`：返回 `user_denied`，并保持 `permission_denied` 可识别语义。
+- `EXE-005` `plan + (allow/ask/deny)`：统一拒绝，`reasonCode=plan_mode_blocked`。
+- `EXE-006` 关闭治理开关：完整回退旧执行路径，Phase 1 用例无回归。
+
+5. 风险与回滚
+- 风险 1：结构化拒绝文案变更导致恢复分类失效。
+  - 回滚：保留旧拒绝关键词；必要时切回旧执行路径。
+- 风险 2：`plan` 模式语义收紧导致现有流程行为变化。
+  - 回滚：在开关下灰度发布，先在测试与开发环境验证。
+- 风险 3：规则集未配置导致误拒绝。
+  - 回滚：默认兜底策略保持可配置（`ask` 或按 mode 降级），并在 trace 中打印命中细节。
+
+6. 建议执行命令
+1. `bun test src/__tests__/phase2_executor_governance.test.ts`
+2. `bun test src/__tests__/phase1_query_engine.test.ts src/__tests__/phase1_recovery_matrix.test.ts`
+3. `bun test src/__tests__/phase2*.test.ts`
 
 ### WP2-D：审计事件链路（对应 `wip2-05`）
 

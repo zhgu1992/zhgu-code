@@ -24,3 +24,9 @@ export interface PermissionDecision {
   reason: string;
   matchedRuleIds: string[];
 }
+
+export interface ToolRiskAssessment {
+  baselineLevel: ToolRiskLevel;
+  riskLevel: ToolRiskLevel;
+  reasonCodes: string[];
+}
