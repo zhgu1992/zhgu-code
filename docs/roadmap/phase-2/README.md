@@ -232,6 +232,53 @@
 - 产出：audit writer/emitter + 查询恢复工具。
 - 验收：单次 tool_call 可还原请求-决策-结果。
 
+#### WP2-D 设计核心（必须先达成共识）
+
+1. 为什么做（Why）
+- 目前 trace 事件可用于在线排障，但缺少稳定、可恢复的“单次工具调用审计记录”，难以做离线追溯与门禁核查。
+- `wip2-04` 已冻结治理决策链路（`risk -> permission -> mode_gate -> execute/deny`），`wip2-05` 需要把这条链路沉淀为可查询证据。
+
+2. 问题与边界
+- In Scope：审计事件模型、executor 发射点、审计写入器、按 `requestId` 的恢复查询工具、写入失败降级策略。
+- Out of Scope：外部数据库接入、审计可视化平台、跨阶段合规策略（保留期/归档策略）与 `wip2-06` 边界阻断实现。
+
+3. 核心设计
+- 审计主键：以 `requestId` 为主关联键，携带 `traceId/turnId/toolName`，保证可与 trace 互相映射。
+- 最小字段：沿用 `ToolExecutionAudit` 合同（`requestId/toolName/riskLevel/startedAt/endedAt/success`），并补充治理字段：
+  - `permissionAction`（`allow/ask/deny`）
+  - `reasonCode`（如 `rule_denied/user_denied/plan_mode_blocked`）
+  - `mode`（`auto/ask/plan`）
+  - `matchedRuleIds`
+- 事件序列（单次调用）：
+  1. `audit.requested`：接收工具调用请求。
+  2. `audit.permission_decided`：记录风险与规则决策结果。
+  3. `audit.execution_started`：进入工具执行。
+  4. `audit.execution_finished`：记录结果（`success/error`、结束时间、错误摘要）。
+  - 若在门控阶段被拒绝，仅写 `requested + permission_decided + execution_finished(denied)`，不产生 `execution_started`。
+- 写入策略：审计写入失败不阻断主流程，降级为 `trace-only`，并发出 `tool.audit_write_failed` 观测事件。
+- 恢复工具：提供按 `requestId` 的审计重放能力，输出“请求-决策-执行-结果”摘要，支持拒绝与执行异常两类链路。
+- 数据约束：审计 payload 不落原始敏感输入，沿用 trace 脱敏/截断策略，仅存必要摘要字段。
+
+4. 验证 Case（DoD）
+- `AUD-001` allow 流程：同一 `requestId` 可看到完整 `requested -> permission_decided -> execution_started -> execution_finished(success)`。
+- `AUD-002` deny 流程：记录到 `execution_finished(denied)`，且 `reasonCode/mode/matchedRuleIds` 可恢复。
+- `AUD-003` 执行异常：`execution_finished(success=false)` 仍落审计，含错误摘要与结束时间。
+- `AUD-004` 写入失败：工具返回与 `wip2-04` 行为一致，不阻断执行，并可在 trace 看到降级事件。
+- `AUD-005` 查询恢复：给定 `requestId` 可稳定生成单次调用摘要，字段齐全且顺序一致。
+
+5. 风险与回滚
+- 风险 1：高频工具调用带来写入开销，影响执行延迟。
+  - 回滚：审计链路加开关（如 `phase2AuditChainEnabled`）；异常时关闭审计写入，仅保留 trace。
+- 风险 2：审计字段包含敏感信息，造成数据泄露风险。
+  - 回滚：严格字段白名单 + 脱敏策略；发现异常立即切到 trace-only。
+- 风险 3：事件乱序导致恢复工具输出不稳定。
+  - 回滚：按 `startedAt/endedAt + 序号` 排序恢复，并在测试中固定顺序断言。
+
+6. 建议执行命令
+1. `bun test src/__tests__/phase2_audit_chain.test.ts`
+2. `bun test src/__tests__/phase2_executor_governance.test.ts src/__tests__/phase1_recovery_matrix.test.ts`
+3. `bun run trace:assert .trace/trace.jsonl`
+
 ### WP2-E：边界硬化（对应 `wip2-06`）
 
 - 目标：统一 Bash/文件/网络边界防护。

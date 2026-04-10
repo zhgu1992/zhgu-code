@@ -6,6 +6,13 @@ import { getTraceBus } from '../observability/trace-bus.js'
 import { evaluatePermission } from '../platform/permission/engine.js'
 import { assessToolRisk } from '../platform/permission/risk.js'
 import type { PermissionAction, PermissionRule } from '../platform/permission/index.js'
+import {
+  createAuditExecutionFinishedEvent,
+  createAuditExecutionStartedEvent,
+  createAuditPermissionDecidedEvent,
+  createAuditRequestedEvent,
+  recordAuditEvent,
+} from '../application/query/audit/index.js'
 
 type DenyReasonCode =
   | 'approval_required_in_auto'
@@ -27,12 +34,81 @@ export async function executeTool(
 ): Promise<string> {
   const state = store.getState()
   const traceBus = getTraceBus()
-  const toolSpanId = createSpanId()
+  const requestId = createSpanId()
+  const toolSpanId = requestId
   const toolStart = Date.now()
+  const startedAt = new Date(toolStart).toISOString()
   const registry = getTools()
+  const risk = assessToolRisk(name, input, state.cwd)
   const tool = registry.get(name)
+  let auditSeq = 1
+
+  const nextAuditSeq = (): number => {
+    const value = auditSeq
+    auditSeq += 1
+    return value
+  }
+
+  recordAuditEvent(
+    createAuditRequestedEvent({
+      sessionId: state.sessionId,
+      traceId: state.traceId,
+      turnId: state.currentTurnId ?? undefined,
+      requestId,
+      toolName: name,
+      startedAt,
+      mode: state.permissionMode,
+      seq: nextAuditSeq(),
+    }),
+  )
+
+  const context: ToolContext = {
+    cwd: state.cwd,
+    permissionMode: state.permissionMode,
+  }
+
+  const governanceEnabled = isPhase2ExecutorGovernanceEnabled()
+  const mode = state.permissionMode
+  let permissionAction: PermissionAction | 'deny' = mode === 'ask' ? 'ask' : 'allow'
+  let reasonCode = mode === 'ask' ? 'approval_required_in_auto' : 'approved'
+  let matchedRuleIds: string[] = []
 
   if (!tool) {
+    permissionAction = 'deny'
+    reasonCode = 'unknown_tool'
+    recordAuditEvent(
+      createAuditPermissionDecidedEvent({
+        sessionId: state.sessionId,
+        traceId: state.traceId,
+        turnId: state.currentTurnId ?? undefined,
+        requestId,
+        toolName: name,
+        riskLevel: risk.riskLevel,
+        baselineLevel: risk.baselineLevel,
+        reasonCodes: risk.reasonCodes,
+        permissionAction,
+        reasonCode,
+        mode,
+        matchedRuleIds,
+        seq: nextAuditSeq(),
+      }),
+    )
+    recordAuditEvent(
+      createAuditExecutionFinishedEvent({
+        sessionId: state.sessionId,
+        traceId: state.traceId,
+        turnId: state.currentTurnId ?? undefined,
+        requestId,
+        toolName: name,
+        success: false,
+        result: 'error',
+        endedAt: new Date().toISOString(),
+        durationMs: Date.now() - toolStart,
+        reasonCode,
+        errorMessage: `Unknown tool: ${name}`,
+        seq: nextAuditSeq(),
+      }),
+    )
     traceBus.emit({
       stage: 'tool',
       event: 'call_error',
@@ -46,14 +122,27 @@ export async function executeTool(
     return `Error: Unknown tool "${name}"`
   }
 
-  const context: ToolContext = {
-    cwd: state.cwd,
-    permissionMode: state.permissionMode,
-  }
-
-  const governanceEnabled = isPhase2ExecutorGovernanceEnabled()
-
   if (!governanceEnabled) {
+    permissionAction = mode === 'ask' ? 'ask' : 'allow'
+    reasonCode = mode === 'ask' ? 'approval_required_in_auto' : 'approved'
+    matchedRuleIds = []
+    recordAuditEvent(
+      createAuditPermissionDecidedEvent({
+        sessionId: state.sessionId,
+        traceId: state.traceId,
+        turnId: state.currentTurnId ?? undefined,
+        requestId,
+        toolName: name,
+        riskLevel: risk.riskLevel,
+        baselineLevel: risk.baselineLevel,
+        reasonCodes: risk.reasonCodes,
+        permissionAction,
+        reasonCode,
+        mode,
+        matchedRuleIds,
+        seq: nextAuditSeq(),
+      }),
+    )
     const legacyDenied = await executeLegacyPermissionPath({
       name,
       input,
@@ -62,16 +151,33 @@ export async function executeTool(
       toolSpanId,
     })
     if (legacyDenied) {
+      recordAuditEvent(
+        createAuditExecutionFinishedEvent({
+          sessionId: state.sessionId,
+          traceId: state.traceId,
+          turnId: state.currentTurnId ?? undefined,
+          requestId,
+          toolName: name,
+          success: false,
+          result: 'denied',
+          endedAt: new Date().toISOString(),
+          durationMs: Date.now() - toolStart,
+          reasonCode: 'user_denied',
+          errorMessage: legacyDenied,
+          seq: nextAuditSeq(),
+        }),
+      )
       return legacyDenied
     }
   } else {
-    const risk = assessToolRisk(name, input, state.cwd)
     const rules = loadPermissionRules()
     const decision = evaluatePermission(rules, {
       toolName: name,
       riskLevel: risk.riskLevel,
     })
-    const mode = state.permissionMode
+    permissionAction = decision.action
+    matchedRuleIds = decision.matchedRuleIds
+    reasonCode = toReasonCode(mode, decision.action)
     traceBus.emit({
       stage: 'permission',
       event: 'decision',
@@ -91,6 +197,23 @@ export async function executeTool(
         reasonCode: toReasonCode(mode, decision.action),
       },
     })
+    recordAuditEvent(
+      createAuditPermissionDecidedEvent({
+        sessionId: state.sessionId,
+        traceId: state.traceId,
+        turnId: state.currentTurnId ?? undefined,
+        requestId,
+        toolName: name,
+        riskLevel: risk.riskLevel,
+        baselineLevel: risk.baselineLevel,
+        reasonCodes: risk.reasonCodes,
+        permissionAction,
+        reasonCode,
+        mode,
+        matchedRuleIds,
+        seq: nextAuditSeq(),
+      }),
+    )
 
     const denyResult = await runGovernanceModeGate({
       mode,
@@ -102,6 +225,23 @@ export async function executeTool(
       matchedRuleIds: decision.matchedRuleIds,
     })
     if (denyResult) {
+      const denyReasonCode = extractPermissionDeniedReasonCode(denyResult) ?? reasonCode
+      recordAuditEvent(
+        createAuditExecutionFinishedEvent({
+          sessionId: state.sessionId,
+          traceId: state.traceId,
+          turnId: state.currentTurnId ?? undefined,
+          requestId,
+          toolName: name,
+          success: false,
+          result: 'denied',
+          endedAt: new Date().toISOString(),
+          durationMs: Date.now() - toolStart,
+          reasonCode: denyReasonCode,
+          errorMessage: denyResult,
+          seq: nextAuditSeq(),
+        }),
+      )
       traceBus.emit({
         stage: 'tool',
         event: 'call_error',
@@ -116,6 +256,17 @@ export async function executeTool(
       return denyResult
     }
   }
+
+  recordAuditEvent(
+    createAuditExecutionStartedEvent({
+      sessionId: state.sessionId,
+      traceId: state.traceId,
+      turnId: state.currentTurnId ?? undefined,
+      requestId,
+      toolName: name,
+      seq: nextAuditSeq(),
+    }),
+  )
 
   // Set progress
   store.getState().setToolProgress({
@@ -155,6 +306,20 @@ export async function executeTool(
         result_bytes: String(result ?? '').length,
       },
     })
+    recordAuditEvent(
+      createAuditExecutionFinishedEvent({
+        sessionId: state.sessionId,
+        traceId: state.traceId,
+        turnId: state.currentTurnId ?? undefined,
+        requestId,
+        toolName: name,
+        success: true,
+        result: 'success',
+        endedAt: new Date().toISOString(),
+        durationMs: Date.now() - toolStart,
+        seq: nextAuditSeq(),
+      }),
+    )
 
     return String(result ?? '')
   } catch (error) {
@@ -177,6 +342,22 @@ export async function executeTool(
       metrics: { duration_ms: Date.now() - toolStart },
       payload: { toolName: name, error: message },
     })
+    recordAuditEvent(
+      createAuditExecutionFinishedEvent({
+        sessionId: state.sessionId,
+        traceId: state.traceId,
+        turnId: state.currentTurnId ?? undefined,
+        requestId,
+        toolName: name,
+        success: false,
+        result: 'error',
+        endedAt: new Date().toISOString(),
+        durationMs: Date.now() - toolStart,
+        reasonCode: 'tool_execution_error',
+        errorMessage: message,
+        seq: nextAuditSeq(),
+      }),
+    )
 
     return `Error: ${message}`
   }
@@ -391,6 +572,14 @@ function toReasonCode(
     return 'approval_required_in_auto'
   }
   return 'approved'
+}
+
+function extractPermissionDeniedReasonCode(value: string): string | null {
+  const match = value.match(/permission denied \(([^)]+)\)/i)
+  if (!match || !match[1]) {
+    return null
+  }
+  return match[1]
 }
 
 export function isPhase2ExecutorGovernanceEnabled(env: NodeJS.ProcessEnv = process.env): boolean {

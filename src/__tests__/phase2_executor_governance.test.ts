@@ -23,7 +23,7 @@ function installTestTool(): void {
       return `ok:${input.value ?? 'none'}`
     },
   }
-  getTools().register(tool)
+  getTools().register(tool as Tool)
 }
 
 function setRules(rules: unknown[]): void {
