@@ -23,10 +23,100 @@ export function validateTraceEvents(events: TraceEvent[]): TraceAssertionReport 
   assertNoOrphanParent(events, failures)
   assertTurnTransitionSemantics(events, failures)
   assertRecoveryTraceSemantics(events, failures)
+  assertContextSignalSemantics(events, failures)
 
   return {
     pass: failures.length === 0,
     failures,
+  }
+}
+
+function assertContextSignalSemantics(events: TraceEvent[], failures: string[]): void {
+  const contextEvents = events.filter(
+    (event) =>
+      event.stage === 'query' &&
+      (event.event === 'context.warning' || event.event === 'context.blocking'),
+  )
+  const seenKeys = new Set<string>()
+  const allowedMetrics = new Set(['context_tokens', 'input_tokens', 'output_tokens'])
+  const allowedSources = new Set(['preflight', 'streaming', 'done'])
+
+  for (const event of contextEvents) {
+    if (!event.payload || typeof event.payload !== 'object') {
+      failures.push(`query.${event.event} missing payload`)
+      continue
+    }
+
+    const payload = event.payload as Record<string, unknown>
+    if (
+      (event.event === 'context.warning' && payload.reasonCode !== 'context_near_limit') ||
+      (event.event === 'context.blocking' && payload.reasonCode !== 'context_limit_exceeded')
+    ) {
+      failures.push(`query.${event.event} invalid reasonCode`)
+    }
+
+    if (typeof payload.metric !== 'string' || !allowedMetrics.has(payload.metric)) {
+      failures.push(`query.${event.event} invalid metric`)
+    }
+    if (typeof payload.actual !== 'number') {
+      failures.push(`query.${event.event} missing actual`)
+    }
+    if (typeof payload.limit !== 'number' || payload.limit <= 0) {
+      failures.push(`query.${event.event} invalid limit`)
+    }
+    if (typeof payload.ratio !== 'number' || payload.ratio < 0) {
+      failures.push(`query.${event.event} invalid ratio`)
+    }
+    if (typeof payload.source !== 'string' || !allowedSources.has(payload.source)) {
+      failures.push(`query.${event.event} invalid source`)
+    }
+    if (typeof payload.estimated !== 'boolean') {
+      failures.push(`query.${event.event} missing estimated`)
+    }
+    if (typeof payload.turnId !== 'string') {
+      failures.push(`query.${event.event} missing turnId`)
+    }
+    if (typeof payload.timestamp !== 'string' || Number.isNaN(Date.parse(payload.timestamp))) {
+      failures.push(`query.${event.event} invalid timestamp`)
+    }
+
+    if (
+      typeof payload.turnId === 'string' &&
+      event.turn_id &&
+      payload.turnId !== event.turn_id
+    ) {
+      failures.push(`query.${event.event} payload.turnId mismatch turn_id=${event.turn_id}`)
+    }
+
+    if (
+      typeof payload.actual === 'number' &&
+      typeof payload.limit === 'number' &&
+      typeof payload.ratio === 'number'
+    ) {
+      const expectedRatio = payload.actual / payload.limit
+      if (Math.abs(payload.ratio - expectedRatio) > 1e-9) {
+        failures.push(`query.${event.event} ratio mismatch`)
+      }
+      if (event.event === 'context.warning' && payload.actual > payload.limit) {
+        failures.push(`query.${event.event} actual should not exceed limit`)
+      }
+      if (event.event === 'context.blocking' && payload.actual <= payload.limit) {
+        failures.push(`query.${event.event} actual must exceed limit`)
+      }
+    }
+
+    if (
+      typeof payload.turnId === 'string' &&
+      typeof payload.metric === 'string' &&
+      typeof payload.reasonCode === 'string'
+    ) {
+      const dedupeKey = `${payload.turnId}:${payload.metric}:${payload.reasonCode}`
+      if (seenKeys.has(dedupeKey)) {
+        failures.push(`query.${event.event} duplicate signal key=${dedupeKey}`)
+      } else {
+        seenKeys.add(dedupeKey)
+      }
+    }
   }
 }
 

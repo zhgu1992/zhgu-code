@@ -23,6 +23,7 @@ import {
   buildContextHealthSnapshot,
   type ContextHealthSnapshot,
 } from './context-health.js'
+import { buildContextSignalEvents } from './context-events.js'
 import { classifyQueryError } from './errors.js'
 import {
   createRecoveryEventPayload,
@@ -71,6 +72,8 @@ export async function runQuery(store: AppStore, options?: QueryOptions): Promise
   const budget = options?.budget
   const contextTokens = estimateContextTokens(systemPrompt, state.messages)
   let lastStreamingSnapshotStatus: ContextHealthSnapshot['status'] | null = null
+  let lastContextHealthStatus: ContextHealthSnapshot['status'] | null = null
+  const emittedContextSignalKeys = new Set<string>()
 
   const stopForBudget = (exceeded: BudgetExceeded): 'stopped' => {
     if (budgetStopped) {
@@ -180,6 +183,16 @@ export async function runQuery(store: AppStore, options?: QueryOptions): Promise
     turnSpanId,
     snapshot: preflightHealth.snapshot,
   })
+  emitContextSignals({
+    traceBus,
+    state,
+    turnId,
+    turnSpanId,
+    previousStatus: lastContextHealthStatus,
+    snapshot: preflightHealth.snapshot,
+    dedupeKeys: emittedContextSignalKeys,
+  })
+  lastContextHealthStatus = preflightHealth.snapshot.status
   if (preflightHealth.exceeded) {
     stopForBudget(preflightHealth.exceeded)
     return
@@ -251,6 +264,16 @@ export async function runQuery(store: AppStore, options?: QueryOptions): Promise
                 turnSpanId,
                 snapshot: streamingHealth.snapshot,
               })
+              emitContextSignals({
+                traceBus,
+                state,
+                turnId,
+                turnSpanId,
+                previousStatus: lastContextHealthStatus,
+                snapshot: streamingHealth.snapshot,
+                dedupeKeys: emittedContextSignalKeys,
+              })
+              lastContextHealthStatus = streamingHealth.snapshot.status
             }
 
             if (streamingHealth.exceeded) {
@@ -352,6 +375,16 @@ export async function runQuery(store: AppStore, options?: QueryOptions): Promise
               turnSpanId,
               snapshot: doneHealth.snapshot,
             })
+            emitContextSignals({
+              traceBus,
+              state,
+              turnId,
+              turnSpanId,
+              previousStatus: lastContextHealthStatus,
+              snapshot: doneHealth.snapshot,
+              dedupeKeys: emittedContextSignalKeys,
+            })
+            lastContextHealthStatus = doneHealth.snapshot.status
             if (doneHealth.exceeded) {
               return stopForBudget(doneHealth.exceeded)
             }
@@ -724,4 +757,69 @@ function emitContextHealthSnapshot(args: {
     parent_span_id: turnSpanId,
     payload: snapshot,
   })
+}
+
+function emitContextSignals(args: {
+  traceBus: ReturnType<typeof getTraceBus>
+  state: ReturnType<AppStore['getState']>
+  turnId: string
+  turnSpanId: string
+  previousStatus: ContextHealthSnapshot['status'] | null
+  snapshot: ContextHealthSnapshot
+  dedupeKeys: Set<string>
+}): void {
+  const { traceBus, state, turnId, turnSpanId, previousStatus, snapshot, dedupeKeys } = args
+
+  const events = buildContextSignalEvents({
+    turnId,
+    snapshot,
+    previousStatus,
+    dedupeKeys,
+  })
+
+  for (const event of events) {
+    try {
+      traceBus.emit({
+        stage: 'query',
+        event: event.eventType,
+        status: event.eventType === 'context.blocking' ? 'error' : 'info',
+        session_id: state.sessionId,
+        trace_id: state.traceId,
+        turn_id: turnId,
+        span_id: createSpanId(),
+        parent_span_id: turnSpanId,
+        payload: {
+          reasonCode: event.reasonCode,
+          metric: event.metric,
+          actual: event.actual,
+          limit: event.limit,
+          ratio: event.ratio,
+          source: event.source,
+          estimated: event.estimated,
+          turnId: event.turnId,
+          timestamp: event.timestamp,
+        },
+      })
+    } catch (error) {
+      try {
+        traceBus.emit({
+          stage: 'query',
+          event: 'context.signal_emit_failed',
+          status: 'info',
+          session_id: state.sessionId,
+          trace_id: state.traceId,
+          turn_id: turnId,
+          span_id: createSpanId(),
+          parent_span_id: turnSpanId,
+          payload: {
+            sourceEventType: event.eventType,
+            reasonCode: event.reasonCode,
+            message: error instanceof Error ? error.message : String(error),
+          },
+        })
+      } catch {
+        // fail-open: observability failures must not block query execution.
+      }
+    }
+  }
 }
