@@ -36,7 +36,7 @@
 
 前置约束：
 1. 先完成 [Phase 2.5 - Context Monitoring Plane](../phase-2-5/README.md)。
-2. 优先消费 Phase 2.5 输出的 `Compression TODO Pack`，再进入压缩实现。
+2. 优先消费 Phase 2.5 输出的 [Compression TODO Pack](../phase-2-5/compression-todo-pack.md)，再进入压缩实现。
 
 ## 超越基线讨论（必填）
 
