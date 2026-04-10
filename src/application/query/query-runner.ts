@@ -16,10 +16,13 @@ import { executeToolAndPersist } from './tool-orchestrator.js'
 import {
   estimateContextTokens,
   estimateTokensFromText,
-  evaluateBudget,
   formatBudgetExceededMessage,
   type BudgetExceeded,
 } from './budget.js'
+import {
+  buildContextHealthSnapshot,
+  type ContextHealthSnapshot,
+} from './context-health.js'
 import { classifyQueryError } from './errors.js'
 import {
   createRecoveryEventPayload,
@@ -66,6 +69,8 @@ export async function runQuery(store: AppStore, options?: QueryOptions): Promise
   const messages = state.messages.map(formatMessageForAPI)
   const systemPrompt = buildSystemPrompt(resolveContext(state.context, state.cwd))
   const budget = options?.budget
+  const contextTokens = estimateContextTokens(systemPrompt, state.messages)
+  let lastStreamingSnapshotStatus: ContextHealthSnapshot['status'] | null = null
 
   const stopForBudget = (exceeded: BudgetExceeded): 'stopped' => {
     if (budgetStopped) {
@@ -154,16 +159,29 @@ export async function runQuery(store: AppStore, options?: QueryOptions): Promise
     })
   }
 
-  const contextBudgetCheck = evaluateBudget(budget, {
+  const preflightHealth = buildContextHealthSnapshot({
+    budget,
+    source: 'preflight',
     usage: {
       inputTokens: 0,
       outputTokens: 0,
-      contextTokens: estimateContextTokens(systemPrompt, state.messages),
+      contextTokens,
     },
-    estimated: { contextTokensEstimated: true },
+    estimated: {
+      contextTokensEstimated: true,
+      inputTokensEstimated: true,
+      outputTokensEstimated: true,
+    },
   })
-  if (contextBudgetCheck) {
-    stopForBudget(contextBudgetCheck)
+  emitContextHealthSnapshot({
+    traceBus,
+    state,
+    turnId,
+    turnSpanId,
+    snapshot: preflightHealth.snapshot,
+  })
+  if (preflightHealth.exceeded) {
+    stopForBudget(preflightHealth.exceeded)
     return
   }
 
@@ -209,16 +227,34 @@ export async function runQuery(store: AppStore, options?: QueryOptions): Promise
           onTextChunk: (chunk, s) => {
             applyTextChunk(s, chunk)
             state.setStreamingText(s.currentText)
-            const outputBudgetCheck = evaluateBudget(budget, {
+            const streamingHealth = buildContextHealthSnapshot({
+              budget,
+              source: 'streaming',
               usage: {
                 inputTokens: 0,
                 outputTokens: estimateTokensFromText(s.currentText),
-                contextTokens: 0,
+                contextTokens,
               },
-              estimated: { outputTokensEstimated: true },
+              estimated: {
+                contextTokensEstimated: true,
+                inputTokensEstimated: true,
+                outputTokensEstimated: true,
+              },
             })
-            if (outputBudgetCheck) {
-              return stopForBudget(outputBudgetCheck)
+
+            if (lastStreamingSnapshotStatus !== streamingHealth.snapshot.status) {
+              lastStreamingSnapshotStatus = streamingHealth.snapshot.status
+              emitContextHealthSnapshot({
+                traceBus,
+                state,
+                turnId,
+                turnSpanId,
+                snapshot: streamingHealth.snapshot,
+              })
+            }
+
+            if (streamingHealth.exceeded) {
+              return stopForBudget(streamingHealth.exceeded)
             }
             if (!quiet && emitStdout) {
               process.stdout.write(chunk)
@@ -295,19 +331,29 @@ export async function runQuery(store: AppStore, options?: QueryOptions): Promise
               )
             }
 
-            const doneBudgetCheck = evaluateBudget(budget, {
+            const doneHealth = buildContextHealthSnapshot({
+              budget,
+              source: 'done',
               usage: {
                 inputTokens: event.inputTokens ?? 0,
                 outputTokens: event.outputTokens ?? estimateTokensFromText(s.currentText),
-                contextTokens: 0,
+                contextTokens,
               },
               estimated: {
+                contextTokensEstimated: true,
                 inputTokensEstimated: event.inputTokens === undefined,
                 outputTokensEstimated: event.outputTokens === undefined,
               },
             })
-            if (doneBudgetCheck) {
-              return stopForBudget(doneBudgetCheck)
+            emitContextHealthSnapshot({
+              traceBus,
+              state,
+              turnId,
+              turnSpanId,
+              snapshot: doneHealth.snapshot,
+            })
+            if (doneHealth.exceeded) {
+              return stopForBudget(doneHealth.exceeded)
             }
 
             turnStateMachine.transition({ type: 'assistant_done' })
@@ -656,4 +702,26 @@ function formatMessageForAPI(message: Message) {
     role: message.role,
     content: message.content,
   }
+}
+
+function emitContextHealthSnapshot(args: {
+  traceBus: ReturnType<typeof getTraceBus>
+  state: ReturnType<AppStore['getState']>
+  turnId: string
+  turnSpanId: string
+  snapshot: ContextHealthSnapshot
+}): void {
+  const { traceBus, state, turnId, turnSpanId, snapshot } = args
+  traceBus.emit({
+    stage: 'query',
+    event: 'context_health_snapshot',
+    status:
+      snapshot.status === 'blocking' ? 'error' : snapshot.status === 'warning' ? 'info' : 'ok',
+    session_id: state.sessionId,
+    trace_id: state.traceId,
+    turn_id: turnId,
+    span_id: createSpanId(),
+    parent_span_id: turnSpanId,
+    payload: snapshot,
+  })
 }
