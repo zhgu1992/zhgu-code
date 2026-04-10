@@ -1,6 +1,6 @@
 # zhgu-code rewrite 架构评估与行动蓝图
 
-> 更新时间：2026-04-09  
+> 更新时间：2026-04-10  
 > 评估方式：`codebase-onboarding + blueprint + verification-loop`  
 > 目标：先完成“大架构与大能力”，再逐步补细节
 > 核心架构设计和演进见 [docs/architecture/system-design.md](../architecture/system-design.md)
@@ -222,6 +222,12 @@ Phase 1 当前门禁命令（补充 / WP1-F）：
 - 高风险工具默认可控
 - 权限与审计可追踪
 
+Phase 2 当前推进状态（2026-04-10）：
+1. `wip2-01` 已完成：对标结论、超越目标、WIP 门禁、依赖与里程碑已在 [docs/roadmap/phase-2/README.md](./phase-2/README.md) 固化，可直接进入实现排期。
+2. `wip2-02`（权限规则引擎）已进入 `In Progress`：先落地 `platform/permission/engine.ts` 与配套单测，不提前改执行链路。
+3. 进入 `wip2-04` 前置门保持不变：必须先冻结 `wip2-02/03` 接口，再接入执行器。
+4. 当前串行主链保持：`wip2-02 -> wip2-03 -> wip2-04 -> wip2-05 -> wip2-06 -> wip2-07`。
+
 ### Phase 3：Integration Plane（MCP/Plugin/Skill）
 目标：建立“能力接入层”，而非继续硬编码工具。
 
@@ -287,6 +293,10 @@ Phase 1 当前门禁命令（补充 / WP1-F）：
 
 执行纪律（会话级）：
 - 当用户提出“执行小步骤”或“讨论 wipxxx”时，若门禁信息缺失，先提问补齐，再实施。
+
+跨 Phase 一致性（更新 / 2026-04-10）：
+- Phase 2/3/4/5 全部切换到与 Phase 1 一致的实施骨架：`WIP门禁表(Why必填) -> 阶段DoD -> Work Packages -> WIP级设计核心/Case/回滚`。
+- 状态流转统一为：门禁补齐后方可 `Pending -> In Progress`，Case 与前置门通过后方可 `In Progress -> Done`。
 
 ---
 
