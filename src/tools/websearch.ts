@@ -17,6 +17,7 @@ export const WebSearchTool: Tool<WebSearchInput, string> = {
   description: `Search the web for information. Returns search results with titles, URLs, and snippets.
 IMPORTANT: You MUST include a "Sources:" section at the end of your response with markdown hyperlinks.
 Use this when you need current information beyond your knowledge cutoff.`,
+  safeToRetry: true,
   inputSchema: {
     type: 'object',
     properties: {

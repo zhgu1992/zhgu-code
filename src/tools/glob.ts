@@ -11,6 +11,7 @@ export const GlobTool: Tool<GlobInput, string> = {
   name: 'Glob',
   description:
     'Find files matching a glob pattern. Returns a list of matching file paths sorted by modification time.',
+  safeToRetry: true,
   inputSchema: {
     type: 'object',
     properties: {

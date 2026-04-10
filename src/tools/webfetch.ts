@@ -11,6 +11,7 @@ export const WebFetchTool: Tool<WebFetchInput, string> = {
 Returns the processed content.
 IMPORTANT: This will fail for authenticated or private URLs.
 Use this to retrieve web pages, API responses, or other public content.`,
+  safeToRetry: true,
   inputSchema: {
     type: 'object',
     properties: {

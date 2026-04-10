@@ -22,10 +22,49 @@ export function validateTraceEvents(events: TraceEvent[]): TraceAssertionReport 
   assertProviderFirstEvent(events, failures)
   assertNoOrphanParent(events, failures)
   assertTurnTransitionSemantics(events, failures)
+  assertRecoveryTraceSemantics(events, failures)
 
   return {
     pass: failures.length === 0,
     failures,
+  }
+}
+
+function assertRecoveryTraceSemantics(events: TraceEvent[], failures: string[]): void {
+  const recoveryEvents = events.filter(
+    (event) =>
+      event.stage === 'query' &&
+      [
+        'recovery_started',
+        'retry_scheduled',
+        'retry_succeeded',
+        'retry_exhausted',
+        'recovery_stopped',
+      ].includes(event.event),
+  )
+
+  for (const event of recoveryEvents) {
+    if (!event.payload || typeof event.payload !== 'object') {
+      failures.push(`query.${event.event} missing payload`)
+      continue
+    }
+
+    const payload = event.payload as Record<string, unknown>
+    const requiredStringFields = ['source', 'error_class', 'error_subclass', 'action']
+    for (const field of requiredStringFields) {
+      if (typeof payload[field] !== 'string') {
+        failures.push(`query.${event.event} missing ${field}`)
+      }
+    }
+    const requiredNumberFields = ['attempt', 'max_attempts', 'backoff_ms']
+    for (const field of requiredNumberFields) {
+      if (typeof payload[field] !== 'number') {
+        failures.push(`query.${event.event} missing ${field}`)
+      }
+    }
+    if (typeof payload.blocked_by_idempotency !== 'boolean') {
+      failures.push(`query.${event.event} missing blocked_by_idempotency`)
+    }
   }
 }
 

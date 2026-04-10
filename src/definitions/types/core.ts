@@ -129,6 +129,7 @@ export interface ToolSchemaProperty {
 export interface Tool<D = unknown, R = unknown, S = unknown> {
   name: string
   description: string
+  safeToRetry?: boolean
   inputSchema: {
     type: 'object'
     properties: Record<string, ToolSchemaProperty>

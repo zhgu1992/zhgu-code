@@ -7,9 +7,20 @@ export type QueryErrorClass =
   | 'non_recoverable'
 
 export type QueryErrorSource = 'provider' | 'tool' | 'permission' | 'budget' | 'unknown'
+export type QueryErrorSubclass =
+  | 'permission_denied'
+  | 'budget_exceeded'
+  | 'timeout'
+  | 'dns_error'
+  | 'connection_reset'
+  | 'rate_limit'
+  | 'tool_io'
+  | 'tool_side_effect_risk'
+  | 'unknown_subclass'
 
 export interface ClassifiedQueryError {
   errorClass: QueryErrorClass
+  errorSubclass: QueryErrorSubclass
   source: QueryErrorSource
   message: string
   retryable: boolean
@@ -38,6 +49,14 @@ const TOOL_TRANSIENT_HINTS = [
   'temporarily unavailable',
   'i/o error',
   'io error',
+  'network failure',
+]
+
+const SIDE_EFFECT_RISK_HINTS = [
+  'non-idempotent',
+  'non idempotent',
+  'side effect',
+  'destructive',
 ]
 
 function toMessage(error: unknown): string {
@@ -64,6 +83,7 @@ export function classifyQueryError(
   if (normalized.includes('denied by user') || normalized.includes('was denied by user')) {
     return {
       errorClass: 'permission_denied',
+      errorSubclass: 'permission_denied',
       source: 'permission',
       message,
       retryable: false,
@@ -73,6 +93,7 @@ export function classifyQueryError(
   if (normalized.includes('budget exceeded')) {
     return {
       errorClass: 'budget_exceeded',
+      errorSubclass: 'budget_exceeded',
       source: 'budget',
       message,
       retryable: false,
@@ -82,15 +103,27 @@ export function classifyQueryError(
   if (includesAny(normalized, RATE_LIMIT_HINTS)) {
     return {
       errorClass: 'provider_rate_limited',
+      errorSubclass: 'rate_limit',
       source: source === 'unknown' ? 'provider' : source,
       message,
       retryable: true,
     }
   }
 
+  if (source === 'tool' && includesAny(normalized, SIDE_EFFECT_RISK_HINTS)) {
+    return {
+      errorClass: 'non_recoverable',
+      errorSubclass: 'tool_side_effect_risk',
+      source,
+      message,
+      retryable: false,
+    }
+  }
+
   if (source === 'tool' && includesAny(normalized, TOOL_TRANSIENT_HINTS)) {
     return {
       errorClass: 'tool_transient',
+      errorSubclass: 'tool_io',
       source,
       message,
       retryable: true,
@@ -98,9 +131,22 @@ export function classifyQueryError(
   }
 
   if (includesAny(normalized, NETWORK_HINTS)) {
+    const sourceResolved = source === 'unknown' ? 'provider' : source
+    let subclass: QueryErrorSubclass = 'timeout'
+    if (normalized.includes('enotfound') || normalized.includes('eai_again')) {
+      subclass = 'dns_error'
+    } else if (
+      normalized.includes('econnreset') ||
+      normalized.includes('econnrefused') ||
+      normalized.includes('socket hang up')
+    ) {
+      subclass = 'connection_reset'
+    }
+
     return {
-      errorClass: source === 'tool' ? 'tool_transient' : 'network_transient',
-      source: source === 'unknown' ? 'provider' : source,
+      errorClass: sourceResolved === 'tool' ? 'tool_transient' : 'network_transient',
+      errorSubclass: sourceResolved === 'tool' ? 'tool_io' : subclass,
+      source: sourceResolved,
       message,
       retryable: true,
     }
@@ -108,6 +154,7 @@ export function classifyQueryError(
 
   return {
     errorClass: 'non_recoverable',
+    errorSubclass: 'unknown_subclass',
     source,
     message,
     retryable: false,

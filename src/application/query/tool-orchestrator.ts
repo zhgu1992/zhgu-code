@@ -3,9 +3,10 @@ import { createSpanId } from '../../observability/ids.js'
 import { getTraceBus } from '../../observability/trace-bus.js'
 import type { AppStore } from '../../state/store.js'
 import { executeTool } from '../../tools/executor.js'
+import { getTools } from '../../tools/registry.js'
 import type { TurnStateMachine } from './turn-state.js'
 import { classifyToolResult } from './errors.js'
-import { decideRecovery, sleep } from './recovery.js'
+import { createRecoveryEventPayload, decideRecovery, sleep } from './recovery.js'
 
 export interface ToolCall {
   id: string
@@ -20,14 +21,21 @@ interface ExecuteToolAndPersistArgs {
   call: ToolCall
   assistantContent: ContentBlock[]
   turnStateMachine: TurnStateMachine
+  recoveryBudget: {
+    currentTotalAttempt: () => number
+    incrementTotalAttempt: () => void
+    maxTotalAttempts: number
+  }
 }
 
 export async function executeToolAndPersist(
   args: ExecuteToolAndPersistArgs,
 ): Promise<ToolOrchestrationResult> {
-  const { store, call, assistantContent, turnStateMachine } = args
+  const { store, call, assistantContent, turnStateMachine, recoveryBudget } = args
   const state = store.getState()
   const traceBus = getTraceBus()
+  const tool = getTools().get(call.name)
+  const safeToRetry = tool?.safeToRetry === true
   let attempt = 0
 
   state.setStreamingText(`🔧 Executing: ${call.name}...`)
@@ -51,30 +59,69 @@ export async function executeToolAndPersist(
 
     const classifiedToolError = classifyToolResult(result)
     if (classifiedToolError) {
-      const decision = decideRecovery(classifiedToolError.errorClass, attempt)
+      const decision = decideRecovery({
+        errorClass: classifiedToolError.errorClass,
+        errorSubclass: classifiedToolError.errorSubclass,
+        source: 'tool',
+        attempt,
+        totalAttempt: recoveryBudget.currentTotalAttempt(),
+        maxTotalAttempts: recoveryBudget.maxTotalAttempts,
+        safeToRetry,
+      })
+
+      const basePayload = {
+        ...createRecoveryEventPayload({
+          source: 'tool',
+          errorClass: classifiedToolError.errorClass,
+          errorSubclass: classifiedToolError.errorSubclass,
+          action: decision.action,
+          attempt,
+          maxAttempts: decision.maxAttempts,
+          backoffMs: decision.backoffMs,
+          blockedByIdempotency: decision.blockedByIdempotency,
+        }),
+        tool_name: call.name,
+      }
 
       traceBus.emit({
         stage: 'query',
-        event: 'recovery_decision',
+        event: 'recovery_started',
         status: decision.action === 'retry' ? 'ok' : 'error',
         session_id: state.sessionId,
         trace_id: state.traceId,
         turn_id: state.currentTurnId ?? undefined,
         span_id: createSpanId(),
-        payload: {
-          source: 'tool',
-          tool_name: call.name,
-          error_class: classifiedToolError.errorClass,
-          action: decision.action,
-          attempt,
-          max_attempts: decision.maxAttempts,
-        },
+        payload: basePayload,
       })
 
       if (decision.action === 'retry') {
+        traceBus.emit({
+          stage: 'query',
+          event: 'retry_scheduled',
+          status: 'ok',
+          session_id: state.sessionId,
+          trace_id: state.traceId,
+          turn_id: state.currentTurnId ?? undefined,
+          span_id: createSpanId(),
+          payload: basePayload,
+        })
         turnStateMachine.transition({ type: 'recoverable_error' })
         await sleep(decision.backoffMs)
+        recoveryBudget.incrementTotalAttempt()
         turnStateMachine.transition({ type: 'recovery_succeeded' })
+        traceBus.emit({
+          stage: 'query',
+          event: 'retry_succeeded',
+          status: 'ok',
+          session_id: state.sessionId,
+          trace_id: state.traceId,
+          turn_id: state.currentTurnId ?? undefined,
+          span_id: createSpanId(),
+          payload: {
+            ...basePayload,
+            attempt: attempt + 1,
+          },
+        })
         turnStateMachine.transition({ type: 'tool_use_detected', toolMode: 'auto' })
         attempt += 1
         state.setStreamingText(`🔁 Retrying tool: ${call.name} (${attempt}/${decision.maxAttempts})`)
@@ -82,10 +129,41 @@ export async function executeToolAndPersist(
       }
 
       if (decision.event === 'retry_exhausted') {
+        traceBus.emit({
+          stage: 'query',
+          event: 'retry_exhausted',
+          status: 'error',
+          session_id: state.sessionId,
+          trace_id: state.traceId,
+          turn_id: state.currentTurnId ?? undefined,
+          span_id: createSpanId(),
+          payload: basePayload,
+        })
         turnStateMachine.transition({ type: 'recoverable_error' })
         turnStateMachine.transition({ type: 'retry_exhausted' })
       } else if (decision.event === 'fatal_error') {
+        traceBus.emit({
+          stage: 'query',
+          event: 'recovery_stopped',
+          status: 'error',
+          session_id: state.sessionId,
+          trace_id: state.traceId,
+          turn_id: state.currentTurnId ?? undefined,
+          span_id: createSpanId(),
+          payload: basePayload,
+        })
         turnStateMachine.transition({ type: 'fatal_error' })
+      } else {
+        traceBus.emit({
+          stage: 'query',
+          event: 'recovery_stopped',
+          status: 'error',
+          session_id: state.sessionId,
+          trace_id: state.traceId,
+          turn_id: state.currentTurnId ?? undefined,
+          span_id: createSpanId(),
+          payload: basePayload,
+        })
       }
       state.setError(classifiedToolError.message)
       return 'stopped'

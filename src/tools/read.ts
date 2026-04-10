@@ -11,6 +11,7 @@ interface ReadInput {
 export const ReadTool: Tool<ReadInput, string> = {
   name: 'Read',
   description: 'Read a file from the filesystem. Returns the file contents.',
+  safeToRetry: true,
   inputSchema: {
     type: 'object',
     properties: {

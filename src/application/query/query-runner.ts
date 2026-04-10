@@ -21,7 +21,12 @@ import {
   type BudgetExceeded,
 } from './budget.js'
 import { classifyQueryError } from './errors.js'
-import { decideRecovery, sleep } from './recovery.js'
+import {
+  createRecoveryEventPayload,
+  decideRecovery,
+  getDefaultMaxTotalRecoveryAttempts,
+  sleep,
+} from './recovery.js'
 
 export async function runQuery(store: AppStore, options?: QueryOptions): Promise<void> {
   const state = store.getState()
@@ -36,6 +41,8 @@ export async function runQuery(store: AppStore, options?: QueryOptions): Promise
   let handoffToNextTurn = false
   let budgetStopped = false
   let providerRecoveryAttempt = 0
+  let totalRecoveryAttempt = 0
+  const maxTotalRecoveryAttempts = getDefaultMaxTotalRecoveryAttempts()
 
   const turnStateMachine = createTurnStateMachine({
     onTransition: (transition) => {
@@ -107,20 +114,24 @@ export async function runQuery(store: AppStore, options?: QueryOptions): Promise
     }
   }
 
-  const emitRecoveryDecision = (
+  const emitRecoveryEvent = (
+    event: 'recovery_started' | 'retry_scheduled' | 'retry_succeeded' | 'retry_exhausted' | 'recovery_stopped',
     payload: {
       source: 'provider'
-      errorClass: string
+      errorClass: import('./errors.js').QueryErrorClass
+      errorSubclass: import('./errors.js').QueryErrorSubclass
       action: 'retry' | 'stop' | 'fatal'
       attempt: number
       maxAttempts: number
+      backoffMs: number
+      blockedByIdempotency: boolean
       message: string
     },
-    status: 'ok' | 'error',
+    status: 'ok' | 'error' = 'ok',
   ): void => {
     traceBus.emit({
       stage: 'query',
-      event: 'recovery_decision',
+      event,
       status,
       session_id: state.sessionId,
       trace_id: state.traceId,
@@ -128,11 +139,16 @@ export async function runQuery(store: AppStore, options?: QueryOptions): Promise
       span_id: createSpanId(),
       parent_span_id: turnSpanId,
       payload: {
-        source: payload.source,
-        error_class: payload.errorClass,
-        action: payload.action,
-        attempt: payload.attempt,
-        max_attempts: payload.maxAttempts,
+        ...createRecoveryEventPayload({
+          source: payload.source,
+          errorClass: payload.errorClass,
+          errorSubclass: payload.errorSubclass,
+          action: payload.action,
+          attempt: payload.attempt,
+          maxAttempts: payload.maxAttempts,
+          backoffMs: payload.backoffMs,
+          blockedByIdempotency: payload.blockedByIdempotency,
+        }),
         message: payload.message,
       },
     })
@@ -234,6 +250,13 @@ export async function runQuery(store: AppStore, options?: QueryOptions): Promise
               },
               assistantContent: s.assistantContent,
               turnStateMachine,
+              recoveryBudget: {
+                currentTotalAttempt: () => totalRecoveryAttempt,
+                incrementTotalAttempt: () => {
+                  totalRecoveryAttempt += 1
+                },
+                maxTotalAttempts: maxTotalRecoveryAttempts,
+              },
             })
 
             return result
@@ -251,6 +274,13 @@ export async function runQuery(store: AppStore, options?: QueryOptions): Promise
               call: { id: event.id, name: event.name, input: event.input },
               assistantContent: s.assistantContent,
               turnStateMachine,
+              recoveryBudget: {
+                currentTotalAttempt: () => totalRecoveryAttempt,
+                incrementTotalAttempt: () => {
+                  totalRecoveryAttempt += 1
+                },
+                maxTotalAttempts: maxTotalRecoveryAttempts,
+              },
             })
           },
           onDone: (event, s) => {
@@ -305,24 +335,67 @@ export async function runQuery(store: AppStore, options?: QueryOptions): Promise
         break
       } catch (providerError) {
         const classified = classifyQueryError(providerError, 'provider')
-        const decision = decideRecovery(classified.errorClass, providerRecoveryAttempt)
+        const decision = decideRecovery({
+          errorClass: classified.errorClass,
+          errorSubclass: classified.errorSubclass,
+          source: 'provider',
+          attempt: providerRecoveryAttempt,
+          totalAttempt: totalRecoveryAttempt,
+          maxTotalAttempts: maxTotalRecoveryAttempts,
+          safeToRetry: true,
+        })
 
-        emitRecoveryDecision(
+        emitRecoveryEvent(
+          'recovery_started',
           {
             source: 'provider',
             errorClass: classified.errorClass,
+            errorSubclass: classified.errorSubclass,
             action: decision.action,
             attempt: providerRecoveryAttempt,
             maxAttempts: decision.maxAttempts,
+            backoffMs: decision.backoffMs,
+            blockedByIdempotency: decision.blockedByIdempotency,
             message: classified.message,
           },
           decision.action === 'retry' ? 'ok' : 'error',
         )
 
         if (decision.action === 'retry') {
+          emitRecoveryEvent(
+            'retry_scheduled',
+            {
+              source: 'provider',
+              errorClass: classified.errorClass,
+              errorSubclass: classified.errorSubclass,
+              action: decision.action,
+              attempt: providerRecoveryAttempt,
+              maxAttempts: decision.maxAttempts,
+              backoffMs: decision.backoffMs,
+              blockedByIdempotency: decision.blockedByIdempotency,
+              message: classified.message,
+            },
+            'ok',
+          )
           tryTransition('recoverable_error')
           await sleep(decision.backoffMs)
           tryTransition('recovery_succeeded')
+          totalRecoveryAttempt += 1
+          emitRecoveryEvent(
+            'retry_succeeded',
+            {
+              source: 'provider',
+              errorClass: classified.errorClass,
+              errorSubclass: classified.errorSubclass,
+              action: decision.action,
+              attempt: providerRecoveryAttempt + 1,
+              maxAttempts: decision.maxAttempts,
+              backoffMs: decision.backoffMs,
+              blockedByIdempotency: decision.blockedByIdempotency,
+              message: classified.message,
+            },
+            'ok',
+          )
           providerRecoveryAttempt += 1
           continue
         }
@@ -331,11 +404,56 @@ export async function runQuery(store: AppStore, options?: QueryOptions): Promise
         errorMessage = classified.message
 
         if (decision.event === 'retry_exhausted') {
+          emitRecoveryEvent(
+            'retry_exhausted',
+            {
+              source: 'provider',
+              errorClass: classified.errorClass,
+              errorSubclass: classified.errorSubclass,
+              action: decision.action,
+              attempt: providerRecoveryAttempt,
+              maxAttempts: decision.maxAttempts,
+              backoffMs: decision.backoffMs,
+              blockedByIdempotency: decision.blockedByIdempotency,
+              message: classified.message,
+            },
+            'error',
+          )
           tryTransition('recoverable_error')
           tryTransition('retry_exhausted')
         } else if (decision.event === 'fatal_error') {
+          emitRecoveryEvent(
+            'recovery_stopped',
+            {
+              source: 'provider',
+              errorClass: classified.errorClass,
+              errorSubclass: classified.errorSubclass,
+              action: decision.action,
+              attempt: providerRecoveryAttempt,
+              maxAttempts: decision.maxAttempts,
+              backoffMs: decision.backoffMs,
+              blockedByIdempotency: decision.blockedByIdempotency,
+              message: classified.message,
+            },
+            'error',
+          )
           tryTransition('fatal_error')
         } else {
+          emitRecoveryEvent(
+            'recovery_stopped',
+            {
+              source: 'provider',
+              errorClass: classified.errorClass,
+              errorSubclass: classified.errorSubclass,
+              action: decision.action,
+              attempt: providerRecoveryAttempt,
+              maxAttempts: decision.maxAttempts,
+              backoffMs: decision.backoffMs,
+              blockedByIdempotency: decision.blockedByIdempotency,
+              message: classified.message,
+            },
+            'error',
+          )
           tryTransition(decision.event)
         }
 

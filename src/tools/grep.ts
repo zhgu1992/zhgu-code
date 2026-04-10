@@ -15,6 +15,7 @@ export const GrepTool: Tool<GrepInput, string> = {
   name: 'Grep',
   description:
     'Search for a pattern in files. Returns matching lines or file paths.',
+  safeToRetry: true,
   inputSchema: {
     type: 'object',
     properties: {
