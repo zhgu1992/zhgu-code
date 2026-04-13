@@ -11,3 +11,6 @@ export interface IntegrationDescriptor {
 export interface IntegrationRegistry {
   list(): IntegrationDescriptor[]
 }
+
+export * from './mcp/types.js'
+export * from './mcp/lifecycle.js'
