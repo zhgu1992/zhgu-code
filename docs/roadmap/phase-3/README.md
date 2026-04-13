@@ -244,8 +244,62 @@
 ### WP3-D：最小安全与隔离（对应 `wip3-05`）
 
 - 目标：补齐外接能力最小边界控制。
-- 产出：来源校验、协议限制、最小权限与熔断策略。
+- 产出：
+  - `src/platform/integration/security/types.ts`
+  - `src/platform/integration/security/guard.ts`
+  - `src/platform/integration/security/circuit-breaker.ts`
+  - `src/__tests__/phase3_integration_security.test.ts`
 - 验收：异常扩展可按 provider/plugin 粒度熔断，不拖垮主链路。
+
+#### WP3-D 设计核心（必须先达成共识）
+
+1. 为什么做（Why）
+- `wip3-02~04` 已打通“可发现/可装载/可注册”，但“哪些外接能力可进入可调用面”仍缺最小统一门。
+- 若没有 provider/plugin 级熔断，异常外接项会在主链路持续重试，放大延迟与失败噪音。
+
+2. 问题与边界
+- In Scope：来源校验、协议限制、最小权限默认值、provider/plugin 级熔断、结构化拒绝原因、审计事件。
+- Out of Scope：签名体系、供应链 attestation、细粒度 RBAC、复杂凭据轮换、多租户隔离（延期到 Extra-B）。
+
+3. 核心设计
+- 最小安全门（Security Guard）：
+  - 输入：`McpLifecycleSnapshot`、`PluginSkillLoaderSnapshot`、`externalCapabilities`。
+  - 输出：`allow | deny | degrade` 决策与结构化原因（复用 `source/module/reasonCode/userMessage/retryable/detail?`）。
+  - 决策维度：
+    - 来源校验：`providerId/pluginId/itemId` 必须稳定且可追踪，未知来源默认 `deny`。
+    - 协议限制：Phase 3 仅允许最小 transport/协议集合；不在白名单直接拒绝。
+    - 最小权限：外接能力默认“可见但不可调度”，仅通过安全门后才可设置 `callable=true`。
+- 熔断器（Circuit Breaker）：
+  - 统计粒度：`mcp:<providerId>`、`plugin:<pluginId>`。
+  - 开启条件：连续失败达到阈值（建议 3）后进入 `open`，并映射为 `state=disabled/callable=false`。
+  - 恢复条件：冷却窗口后进入 `half-open` 试探；成功则 `closed`，失败回 `open`。
+  - 与主链路关系：熔断后仅禁用该 provider/plugin，不影响内建工具与其他外接项。
+- 接线约束：
+  - `registry adapter` 在构建 callable 工具池前必须消费安全门与熔断快照。
+  - 拒绝原因必须可透传到 `resolveToolCall` 返回值，避免上层丢失安全语义。
+- 可观测性：
+  - 事件建议：`integration_security_guard_decided`、`integration_circuit_state_changed`。
+  - 每次重建输出安全摘要：拒绝数、降级数、熔断开启数、恢复数。
+
+4. 验证 Case（DoD）
+- `SEC-001` 非可信来源（未知 provider/plugin）不会进入可调用面，且返回结构化拒绝原因。
+- `SEC-002` 非允许协议/transport 的外接能力被拒绝，`reasonCode` 可用于审计检索。
+- `SEC-003` 单一 provider/plugin 连续异常触发熔断后，其他 provider/plugin 与内建工具仍可正常调度。
+- `SEC-004` 熔断项在冷却后可试探恢复；恢复失败会重新打开熔断，不会造成主链路雪崩重试。
+
+5. 对标参考（安全边界）
+- Phase 2 边界硬化：`src/platform/permission/boundary.ts`（协议/路径/网络最小拒绝语义）。
+- 风险分级：`src/platform/permission/risk.ts`（reason code 分类口径）。
+- 接入状态来源：`src/platform/integration/mcp/*`、`src/platform/integration/plugin/*`。
+- 注册面消费点：`src/platform/integration/registry/adapter.ts`、`src/application/query/tool-orchestrator.ts`。
+
+6. 风险与回滚
+- 风险 1：安全门误拦截导致可用能力下降。
+  - 回滚：临时降级为“审计模式”（只记录不拦截），并保留拒绝事件用于修正规则。
+- 风险 2：熔断阈值过低导致抖动。
+  - 回滚：调高阈值与冷却窗口，必要时切换为“仅手动禁用”策略。
+- 风险 3：拒绝语义与 Phase 2 reason code 不一致，影响排障。
+  - 回滚：统一 reasonCode 字典到 `permission/boundary` 口径，保留兼容映射层。
 
 ### WP3-E：阶段收口与延期交接（对应 `wip3-06`）
 

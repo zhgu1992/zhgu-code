@@ -1,5 +1,6 @@
 import type { Tool } from '../../../definitions/types/index.js'
 import type { IntegrationLoadedFrom } from '../plugin/types.js'
+import type { IntegrationSecurityContext } from '../security/types.js'
 
 export type CapabilitySource = 'builtin' | 'mcp' | 'plugin' | 'skill'
 
@@ -28,6 +29,10 @@ export interface CapabilityDescriptor {
   name: string
   type: CapabilityType
   source: CapabilitySource
+  providerId?: string
+  pluginId?: string
+  transport?: string
+  protocol?: string
   loadedFrom?: IntegrationLoadedFrom
   version?: string
   state: CapabilityState
@@ -48,6 +53,10 @@ export interface ExternalCapabilityInput {
   name: string
   type: CapabilityType
   source: Exclude<CapabilitySource, 'builtin'>
+  providerId?: string
+  pluginId?: string
+  transport?: string
+  protocol?: string
   loadedFrom?: IntegrationLoadedFrom
   version?: string
   state: CapabilityState
@@ -60,6 +69,7 @@ export interface IntegrationRegistryRebuildInput {
   mcpSnapshots?: import('../mcp/types.js').McpLifecycleSnapshot[]
   pluginSnapshot?: import('../plugin/types.js').PluginSkillLoaderSnapshot
   externalCapabilities?: ExternalCapabilityInput[]
+  security?: IntegrationSecurityContext
 }
 
 export interface IntegrationRegistrySummary {
