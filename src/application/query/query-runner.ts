@@ -6,7 +6,7 @@ import type { Message } from '../../definitions/types/index.js'
 import { createSpanId, createTurnId } from '../../observability/ids.js'
 import { getTraceBus } from '../../observability/trace-bus.js'
 import type { AppStore } from '../../state/store.js'
-import { getTools } from '../../tools/registry.js'
+import { createIntegrationRegistryAdapter } from '../../platform/integration/registry/adapter.js'
 import {
   createTurnStateMachine,
   IllegalTurnTransitionError,
@@ -64,7 +64,11 @@ export async function runQuery(store: AppStore, options?: QueryOptions): Promise
     turnSpanId,
   })
 
-  const tools = getTools()
+  const integrationRegistry = createIntegrationRegistryAdapter({
+    sessionId: state.sessionId,
+    traceId: state.traceId,
+  })
+  integrationRegistry.rebuild()
   const quiet = options?.quiet ?? state.quiet
   const emitStdout = options?.emitStdout ?? true
   const messages = state.messages.map(formatMessageForAPI)
@@ -217,7 +221,7 @@ export async function runQuery(store: AppStore, options?: QueryOptions): Promise
             max_tokens: 4096,
             system: systemPrompt,
             messages,
-            tools: tools.toAPISchema(),
+            tools: integrationRegistry.listModelCallableTools(),
           },
           createProviderHooks({
             traceBus,

@@ -60,6 +60,7 @@
 
 1. SX3-1 能力健康探针：接入层对 MCP/Plugin 维护最小健康状态与最近失败原因。
 2. SX3-2 统一能力目录：内建与外接能力在同一目录输出可查询元数据。
+3. SX3-3 接线可视化：输出最小能力接线视图，支持“来源/状态/可调度性/冲突”快速定位。
 
 ### 4) 风险与回滚策略
 
@@ -79,6 +80,7 @@
 | `wip3-04` 统一注册面接线 | 内建与外接能力注册口径分离 | 内建/外接统一目录输出，主链路单入口消费 | 新增 registry adapter 并接线 query/tool runtime | `REG-001~005` 通过 | 回退到内建 registry | Pending |
 | `wip3-05` 最小安全隔离与熔断 | 外接能力边界缺少统一约束 | 提供最小来源校验和按 provider/plugin 熔断能力 | 来源校验、协议校验、开关禁用 | `SEC-001~004` 通过 | 开关禁用外接能力 | Pending |
 | `wip3-06` 收口验收与延期交接 | 缺少阶段级验收与“延期到 Extra-B”清单 | 形成可重复验收 + 延期项交接包 | 汇总测试、对标结论、回滚脚本、deferred list | `phase3_* + 前置门` 全绿 | 未达标不推进 Phase 4/5 | Pending |
+| `wip3-07` 最小可视化接线 | 接入问题排查依赖读日志，定位慢 | 让“能力来源/状态/冲突/可调用性”可视化可核对 | 新增 registry graph snapshot 与 query 命令入口 | `VIS-001~004` 通过 | 回退到文本摘要输出 | Pending |
 
 ## 阶段完成标准（DoD）
 
@@ -87,6 +89,7 @@
 3. 统一注册面可同时查询内建与外接能力元数据。
 4. `build/type/lint/test` 全绿，且不引入前置 Phase 回归。
 5. 输出阶段回对标结论、风险豁免记录与“Deferred to Extra-B”清单。
+6. 提供最小接线可视化输出（可用于联调与验收截图）。
 
 ## 工作包（Work Packages）
 
@@ -175,8 +178,68 @@
 ### WP3-C：统一注册面（对应 `wip3-04`）
 
 - 目标：统一能力目录与查询接口。
-- 产出：registry adapter 与来源标记。
+- 产出：
+  - `src/platform/integration/registry/types.ts`
+  - `src/platform/integration/registry/adapter.ts`
+  - `src/platform/integration/index.ts`（统一导出）
+  - `src/application/query/query-runner.ts`（改为单入口消费可调用能力）
+  - `src/__tests__/phase3_registry_adapter.test.ts`
 - 验收：内建/外接能力同口径查询。
+
+#### WP3-C 设计核心（必须先达成共识）
+
+1. 为什么做（Why）
+- 当前 `tools/registry`、MCP 生命周期、Plugin/Skill 装载结果分散在不同模块，主链路缺少统一“能力目录”，导致同一能力在“可见性、可调度性、来源标记”上口径不一致。
+- `wip3-03` 已建立最小装载协议，`wip3-04` 需要把“已装载/已降级/已禁用”的状态统一映射为可查询注册面，供 query/runtime 单入口消费。
+
+2. 问题与边界
+- In Scope：统一能力描述模型、来源标记归一化、状态归一化、目录查询接口、query 侧单入口消费、最小冲突去重策略。
+- Out of Scope：远端能力动态拉取、复杂优先级编排、跨节点注册同步、策略驱动路由（延期到 Extra-B）。
+
+3. 核心设计
+- 统一注册模型（最小字段）：
+  - `capabilityId`（稳定主键，建议 `source:type:id`）
+  - `name/type/source/loadedFrom?/version?/state/callable/reason?`
+  - 其中 `reason` 复用 WP3-A/B 结构化语义（`source/module/reasonCode/userMessage/retryable/detail?`）。
+- 数据来源与映射：
+  - 内建工具：来自 `tools/registry`，默认 `source=builtin`、`state=ready`、`callable=true`。
+  - MCP：来自 `McpLifecycleSnapshot`，`ready/degraded/disabled` 按状态映射为可调度性；`disabled` 必须 `callable=false`。
+  - Plugin/Skill：来自 `PluginSkillLoaderSnapshot`，保留 `loadedFrom`（`bundled/skills/plugin`）；`loaded` 才可调用，`disabled` 明确不可调用。
+- 状态归一化原则：
+  - 统一对外状态集合建议为 `ready | degraded | disabled | discovered`，禁止每个来源暴露自定义枚举给上层。
+  - 调度判定统一走 `callable`，避免调用侧重复理解来源特定状态机。
+- 查询接口（统一注册面）：
+  - `listCapabilities(filters?)`：按 `source/type/state/callable` 过滤。
+  - `getCapability(capabilityId)`：单项查询，返回结构化状态与原因。
+  - `listModelCallableTools()`：仅返回当前可提供给模型的工具 schema（供 `query-runner` 使用）。
+- 主链路接线约束：
+  - `query-runner` 不再直接拼接多来源工具集合，改为只依赖 registry adapter 输出。
+  - 调用执行前做一次 `callable` 断言；若不可调用，返回结构化拒绝（`reasonCode=registry_not_callable`）。
+- 冲突与去重：
+  - 同名不同来源不覆盖，通过 `capabilityId` 区分。
+  - 模型工具名冲突时遵循“内建优先、外接保留但不抢占”策略，并输出冲突审计事件。
+- 可观测性：
+  - 每次注册面重建输出一次摘要事件（来源计数、可调用计数、禁用计数、冲突计数），用于阶段验收与回归追查。
+
+4. 验证 Case（DoD）
+- `REG-001` 内建工具与外接能力（MCP/Plugin/Skill）可在同一接口查询，且来源标记正确。
+- `REG-002` 禁用项（MCP disabled / Plugin disabled）仍可查询但 `callable=false`，并附结构化原因。
+- `REG-003` 同名冲突场景下不发生覆盖，目录可返回两条能力并给出稳定 `capabilityId`。
+- `REG-004` `query-runner` 仅通过 registry adapter 获取模型可调用工具，不再直接依赖分散来源集合。
+- `REG-005` 关闭统一注册面开关时可回退到“仅内建 registry”，且 `phase1_*`、`phase2_*` 回归无新增失败。
+
+5. 对标参考（统一注册与聚合）
+- 命令/技能多来源聚合：`claude-code-run/src/commands.ts`（`getSkills/loadAllCommands/getSkillToolCommands`）。
+- 工具池单入口合并：`claude-code-run/src/tools.ts`（`assembleToolPool/getMergedTools`）。
+- 当前接入层基线：`rewrite/src/platform/integration/index.ts`、`mcp/*`、`plugin/*`。
+
+6. 风险与回滚
+- 风险 1：状态映射不一致导致“可见但不可调度”误判。
+  - 回滚：切回“内建 registry + 外接只观测不调度”模式。
+- 风险 2：工具排序变化影响 prompt cache 稳定性。
+  - 回滚：固定注册输出顺序（内建优先），必要时回退旧工具集合构造路径。
+- 风险 3：冲突处理策略变更触发行为回归。
+  - 回滚：保持“内建优先”不变，仅记录冲突并禁用外接同名能力。
 
 ### WP3-D：最小安全与隔离（对应 `wip3-05`）
 
@@ -190,6 +253,36 @@
 - 产出：验收报告、回滚预案、主路线图更新、Deferred 清单。
 - 验收：Phase 3 专项门禁全绿，且延期项均映射到 Phase Extra-B。
 
+### WP3-F：最小可视化接线（对应 `wip3-07`）
+
+- 目标：提供统一注册面的最小可视化视图，提升联调和回归定位效率。
+- 产出：
+  - `src/platform/integration/registry/graph.ts`
+  - `src/application/query/context-view.ts`（新增 integration graph 读取入口）
+  - `src/__tests__/phase3_registry_graph.test.ts`
+- 验收：可视化输出能展示来源、状态、可调用性与冲突摘要。
+
+#### WP3-F 设计核心（必须先达成共识）
+
+1. 为什么做（Why）
+- 当前接入问题排查主要依赖 trace 和文本快照，信息密度高但不直观，联调效率偏低。
+
+2. 问题与边界
+- In Scope：最小只读视图（图结构或树结构 JSON）、冲突高亮、来源统计。
+- Out of Scope：复杂前端控制台、实时流式拓扑动画、跨节点集群视图（延期到 Extra-B）。
+
+3. 核心设计
+- 输入：`registry adapter` 当前快照。
+- 输出：`nodes + edges + summary` 三段结构，节点至少包含 `capabilityId/source/type/state/callable`。
+- 冲突表达：同 tool name 多来源冲突以 `conflictGroup` 聚合，内建优先策略显式可见。
+- 可观测性：每次图快照生成写一次轻量事件 `integration_registry_graph_snapshot`。
+
+4. 验证 Case（DoD）
+- `VIS-001` 能输出内建与外接统一接线图，不丢失来源标记。
+- `VIS-002` 禁用项在图中可见且 `callable=false`。
+- `VIS-003` 同名冲突可在 `conflictGroup` 中聚合展示。
+- `VIS-004` 无外接能力时退化为“仅内建图”，不报错。
+
 ## Deferred to Phase Extra-B（Integration Advanced）
 
 1. 多 transport 扩展（`stdio/http/sse/ws`）与连接池治理。
@@ -201,14 +294,14 @@
 ## 依赖与并行策略
 
 1. 串行主链：`wip3-01 -> wip3-02 -> wip3-03 -> wip3-04 -> wip3-05 -> wip3-06`
-2. 并行项：`wip3-03` 与 `wip3-04` 可并行评审接口草案。
+2. 并行项：`wip3-03` 与 `wip3-04` 可并行评审接口草案；`wip3-07` 在 `wip3-04` 后可并行于 `wip3-05`。
 3. 前置门：进入实现前必须完成 `wip3-01` 对标结论冻结。
 
 ## 里程碑
 
 1. M3-1（最小外部通路可运行）：完成 `wip3-02`
 2. M3-2（装载与注册可治理）：完成 `wip3-03 + wip3-04`
-3. M3-3（最小安全隔离可验证）：完成 `wip3-05`
+3. M3-3（接线可视与最小安全可验证）：完成 `wip3-05 + wip3-07`
 4. M3-4（阶段收口与延期交接）：完成 `wip3-06`
 
 ## 建议验收命令（草案）

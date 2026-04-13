@@ -4,6 +4,7 @@ import { getTraceBus } from '../../observability/trace-bus.js'
 import type { AppStore } from '../../state/store.js'
 import { executeTool } from '../../tools/executor.js'
 import { getTools } from '../../tools/registry.js'
+import { createIntegrationRegistryAdapter } from '../../platform/integration/registry/adapter.js'
 import type { TurnStateMachine } from './turn-state.js'
 import { classifyToolResult } from './errors.js'
 import { createRecoveryEventPayload, decideRecovery, sleep } from './recovery.js'
@@ -34,6 +35,37 @@ export async function executeToolAndPersist(
   const { store, call, assistantContent, turnStateMachine, recoveryBudget } = args
   const state = store.getState()
   const traceBus = getTraceBus()
+  const integrationRegistry = createIntegrationRegistryAdapter({
+    sessionId: state.sessionId,
+    traceId: state.traceId,
+  })
+  integrationRegistry.rebuild()
+  const callResolution = integrationRegistry.resolveToolCall(call.name)
+  if (!callResolution.callable) {
+    const errorPayload = JSON.stringify(callResolution.reason)
+    if (
+      state.permissionMode === 'ask' &&
+      turnStateMachine.getSnapshot().state === 'awaiting-permission'
+    ) {
+      turnStateMachine.transition({ type: 'permission_denied' })
+    }
+    traceBus.emit({
+      stage: 'query',
+      event: 'registry_not_callable',
+      status: 'error',
+      session_id: state.sessionId,
+      trace_id: state.traceId,
+      turn_id: state.currentTurnId ?? undefined,
+      span_id: createSpanId(),
+      payload: {
+        toolName: call.name,
+        capabilityId: callResolution.capability?.capabilityId,
+        reason: callResolution.reason,
+      },
+    })
+    state.setError(`Error: ${errorPayload}`)
+    return 'stopped'
+  }
   const tool = getTools().get(call.name)
   const safeToRetry = tool?.safeToRetry === true
   let attempt = 0
