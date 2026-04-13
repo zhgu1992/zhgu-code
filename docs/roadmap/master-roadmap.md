@@ -261,7 +261,7 @@ Phase 3 当前推进状态（2026-04-13）：
 1. `wip3-01`（对标与门禁基线）已冻结：Phase 3 对标结论与差异项已回写到 `phase-3/README.md`。
 2. `wip3-06`（阶段收口）已完成：新增 `src/application/phase3/closure.ts` 与 `phase3_closure.test.ts`，将 hard gates、Deferred 映射、回滚演练、路线图回写阻塞条件落为可执行断言。
 3. 收口包已生成：`phase3-acceptance.md`、`phase3-rollback.md`、`phase3-deferred-map.md`，并同步到 Extra-B 承接文档。
-4. 当前剩余项：`wip3-07`（最小可视化接线）仍为 Pending。
+4. 当前剩余项：`wip3-07`（最小可视化接线）已进入 In Progress（设计冻结，待代码落地）。
 
 ### Phase 4：Orchestration Plane（Agent/Task/Plan）
 目标：完成复杂任务所需编排能力。

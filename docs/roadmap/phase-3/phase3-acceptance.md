@@ -33,4 +33,4 @@
 - Decision: `PASS`
 - Phase 4/5 Gate: `OPEN`
 - Residual Risks:
-  - `wip3-07`（最小可视化接线）仍为 Pending，不影响 `wip3-06` 收口，但会影响 Phase 3 整体 Done 判定。
+  - `wip3-07`（最小可视化接线）已进入 In Progress（设计冻结，代码待落地），不影响 `wip3-06` 收口，但会影响 Phase 3 整体 Done 判定。

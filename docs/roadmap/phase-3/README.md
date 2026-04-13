@@ -82,7 +82,7 @@
 | `wip3-04` 统一注册面接线 | 内建与外接能力注册口径分离 | 内建/外接统一目录输出，主链路单入口消费 | 新增 registry adapter 并接线 query/tool runtime | `REG-001~005` 通过 | 回退到内建 registry | Pending |
 | `wip3-05` 最小安全隔离与熔断 | 外接能力边界缺少统一约束 | 提供最小来源校验和按 provider/plugin 熔断能力 | 来源校验、协议校验、开关禁用 | `SEC-001~004` 通过 | 开关禁用外接能力 | Pending |
 | `wip3-06` 收口验收与延期交接 | 缺少阶段级验收与“延期到 Extra-B”清单 | 形成可重复验收 + 延期项交接包 | 汇总测试、对标结论、回滚脚本、deferred list | `phase3_* + 前置门` 全绿 | 未达标不推进 Phase 4/5 | Done |
-| `wip3-07` 最小可视化接线 | 接入问题排查依赖读日志，定位慢 | 让“能力来源/状态/冲突/可调用性”可视化可核对 | 新增 registry graph snapshot 与 query 命令入口 | `VIS-001~004` 通过 | 回退到文本摘要输出 | Pending |
+| `wip3-07` 最小可视化接线 | 接入问题排查依赖读日志，定位慢 | 让“能力来源/状态/冲突/可调用性”可视化可核对 | 新增 registry graph snapshot 与 query 命令入口 | `VIS-001~004` 通过 | 回退到文本摘要输出 | In Progress（设计冻结） |
 
 ## 阶段完成标准（DoD）
 
@@ -373,6 +373,7 @@
 - 产出：
   - `src/platform/integration/registry/graph.ts`
   - `src/application/query/context-view.ts`（新增 integration graph 读取入口）
+  - `src/cli/index.ts`（新增 `integration graph` 命令）
   - `src/__tests__/phase3_registry_graph.test.ts`
 - 验收：可视化输出能展示来源、状态、可调用性与冲突摘要。
 
@@ -396,6 +397,54 @@
 - `VIS-002` 禁用项在图中可见且 `callable=false`。
 - `VIS-003` 同名冲突可在 `conflictGroup` 中聚合展示。
 - `VIS-004` 无外接能力时退化为“仅内建图”，不报错。
+
+#### WP3-F 实现讨论结论（2026-04-13 冻结）
+
+1. 接线入口（不新增第二注册面）
+- 图快照直接消费 `IntegrationRegistryAdapter` 的既有输出：
+  - `listCapabilities()` 作为节点输入。
+  - `listModelCallableTools()` + `capability.modelTool?.name` 作为冲突分组输入。
+- 不在 `graph.ts` 内重复做安全判定与熔断判定，统一复用 `adapter` 已计算后的 `callable/state/reason`，避免双重语义。
+
+2. 图模型（最小 JSON 契约）
+- `snapshot` 输出固定三段：
+  - `nodes`: `capabilityId/name/type/source/state/callable/reasonCode?/providerId?/pluginId?/loadedFrom?/transport?/protocol?`
+  - `edges`: `from/to/relation`
+    - `relation=belongs_to_provider`：MCP tool -> MCP provider
+    - `relation=belongs_to_plugin`：plugin skill -> plugin
+  - `summary`: `total/callable/disabled/conflicts/sourceCounts`
+- 冲突分组单独输出 `conflictGroups[]`：
+  - `toolName`
+  - `ownerCapabilityId`（当前模型可调用 owner）
+  - `candidateCapabilityIds[]`（同名候选）
+  - `resolutionPolicy`（固定 `builtin_preferred`）
+
+3. `context-view` 与 CLI 入口
+- 在 `context-view.ts` 新增 integration graph 的只读组装函数，保持与 `context` 子命令同风格：
+  - `buildIntegrationGraphView(snapshot | null)`
+  - 无数据时返回 `type=no_data`，`reason=integration_graph_unavailable`，而不是抛错。
+- CLI 新增：
+  - `zhgu-code integration graph`
+  - 默认输出 JSON，便于验收截图、回归 diff、后续接入前端控制台。
+
+4. 可观测性事件（最小新增）
+- 每次生成图快照写 `integration_registry_graph_snapshot` 事件，复用 `stage=provider`。
+- payload 最小字段：
+  - `total/callable/disabled/conflicts`
+  - `sourceCounts`
+  - `conflictGroupCount`
+- 不新增高频逐节点事件，避免 trace 噪音。
+
+5. 分步实现计划（建议按 PR 切分）
+1. `PR-1`：新增 `registry/graph.ts` 与 `phase3_registry_graph.test.ts`（纯函数 + DoD 覆盖）。
+2. `PR-2`：在 `context-view.ts` 与 `cli/index.ts` 新增 `integration graph` 读取与输出命令。
+3. `PR-3`：补 trace 事件与回归测试，验证 `VIS-001~004` 与 `phase1/phase2` 无回归。
+
+6. 测试矩阵（映射 VIS DoD）
+- `VIS-001`：构造 builtin + mcp + plugin + skill 混合快照，断言节点来源完整。
+- `VIS-002`：注入 `state=disabled` 与 `callable=false` 能力，断言图中保留且可读。
+- `VIS-003`：构造同名工具冲突（builtin 与 mcp），断言 `conflictGroups` 聚合与 owner 归因正确。
+- `VIS-004`：仅 builtin 输入时输出合法图结构，`edges/conflictGroups` 可为空但字段不缺失。
 
 ## Deferred to Phase Extra-B（Integration Advanced）
 
