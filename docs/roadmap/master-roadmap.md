@@ -246,11 +246,12 @@ Phase 2 当前推进状态（2026-04-10）：
 - 压缩策略未启用，但待办已结构化并可执行
 
 ### Phase 3：Integration Plane（MCP/Plugin/Skill）
-目标：建立“能力接入层”，而非继续硬编码工具。
+目标：建立“最小可用能力接入层”，而非继续硬编码工具。
 
-1. MCP 连接生命周期管理（发现、鉴权、可用性）
-2. Plugin/Skill 装载协议（元数据、版本、禁用与回退）
+1. 最小 MCP 生命周期通路（可用性、降级、禁用）
+2. 最小 Plugin/Skill 装载协议（元数据、禁用与回退）
 3. 统一工具目录（内建工具 + 外接能力同一注册面）
+4. 重型接入能力延期到 Phase Extra-B（Integration Advanced）
 
 完成标准：
 - 至少 1 条外部能力通路稳定可用
@@ -279,15 +280,16 @@ Phase 2 当前推进状态（2026-04-10）：
 - 回归成本可控
 
 ### Phase Extra：Advanced Modules（后置复杂模块池）
-目标：在主架构稳定后承接高复杂度、可独立灰度和可独立回滚的模块化能力。
+目标：在主架构稳定后承接高复杂度、可独立灰度和可独立回滚的模块化能力（A/B 双子轨）。
 
-1. 首个模块：承接 Phase 2.5 的 context 压缩 TODO（策略编排、溢出恢复、质量评估）
-2. 后续复杂模块统一纳入 Extra（遵循同一准入与回滚模板）
-3. 默认要求：feature flag、独立验收、不破坏 Phase 1~5 前置门
+1. Extra-A（Context Advanced）：承接 Phase 2.5 的 context 压缩 TODO（策略编排、溢出恢复、质量评估）
+2. Extra-B（Integration Advanced）：承接 Phase 3 延期的重型 MCP/Plugin/Skill 接入能力
+3. 后续复杂模块统一纳入 Extra（遵循同一准入与回滚模板）
+4. 默认要求：feature flag、独立验收、不破坏 Phase 1~5 前置门
 
 完成标准：
 - 复杂模块具备独立开关、独立门禁、独立回滚
-- 压缩能力可灰度上线，不影响主架构主链路稳定性
+- Extra-A 与 Extra-B 均可灰度上线，不影响主架构主链路稳定性
 
 ## 6) 建议的近期执行顺序（你下一步就做这个）
 
@@ -298,7 +300,7 @@ Phase 2 当前推进状态（2026-04-10）：
 5. 插入 Phase 2.5（Context 监控先行），冻结监控口径并产出压缩 TODO 包。  
 6. 再推进 Phase 3/4（集成面 + 编排面），形成平台能力闭环。  
 7. 完成 Phase 5（质量与发布平面）并冻结主线质量门。  
-8. 最后进入 Phase Extra，承接压缩等高复杂度独立模块。  
+8. 最后进入 Phase Extra（A/B 双子轨），承接 context advanced 与 integration advanced 高复杂度模块。  
 
 ## 7) 跨 Phase 粗步骤（含 WIP 门禁）
 
