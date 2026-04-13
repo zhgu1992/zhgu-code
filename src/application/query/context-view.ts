@@ -13,6 +13,12 @@ interface IntegrationGraphSnapshotRecord {
   updatedAt: string
 }
 
+export interface IntegrationGraphSnapshotEventRecord {
+  event: 'integration_registry_graph_snapshot'
+  payload: Record<string, unknown>
+  updatedAt: string
+}
+
 export interface ContextViewSnapshotResponse {
   type: 'snapshot'
   status: ContextHealthSnapshot['status']
@@ -164,6 +170,40 @@ export async function loadLatestIntegrationGraphSnapshotFromTrace(
     }
     return {
       snapshot,
+      updatedAt: event.ts,
+    }
+  }
+
+  return null
+}
+
+export async function loadLatestIntegrationGraphSnapshotEventFromTrace(
+  traceFilePath = resolve(process.cwd(), process.env.ZHGU_TRACE_FILE || '.trace/trace.jsonl'),
+): Promise<IntegrationGraphSnapshotEventRecord | null> {
+  let events: Awaited<ReturnType<typeof loadTraceEvents>>
+  try {
+    events = await loadTraceEvents(traceFilePath)
+  } catch {
+    return null
+  }
+
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i]
+    if (
+      !event ||
+      event.stage !== 'provider' ||
+      event.event !== 'integration_registry_graph_snapshot'
+    ) {
+      continue
+    }
+
+    if (!event.payload || typeof event.payload !== 'object' || Array.isArray(event.payload)) {
+      continue
+    }
+
+    return {
+      event: 'integration_registry_graph_snapshot',
+      payload: event.payload as Record<string, unknown>,
       updatedAt: event.ts,
     }
   }

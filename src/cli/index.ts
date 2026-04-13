@@ -6,6 +6,7 @@ import {
   buildContextView,
   buildIntegrationGraphView,
   loadLatestContextSnapshotFromTrace,
+  loadLatestIntegrationGraphSnapshotEventFromTrace,
   loadLatestIntegrationGraphSnapshotFromTrace,
 } from '../application/query/context-view.js'
 
@@ -30,7 +31,32 @@ program
   .description('Show integration snapshots from provider trace')
   .command('graph')
   .description('Show latest integration registry graph snapshot')
-  .action(async () => {
+  .option('--latest', 'Show the latest raw integration snapshot event payload')
+  .action(async (options: { latest?: boolean }) => {
+    if (options.latest) {
+      const latestEvent = await loadLatestIntegrationGraphSnapshotEventFromTrace()
+      if (!latestEvent) {
+        console.log(
+          JSON.stringify(
+            {
+              type: 'no_data',
+              reason: 'integration_graph_unavailable',
+              message: 'No integration graph snapshot found in trace.',
+              actions: [
+                'Run `zhgu-code "<prompt>"` or start interactive REPL and execute one turn',
+                'Then rerun `zhgu-code integration graph --latest`',
+              ],
+            },
+            null,
+            2,
+          ),
+        )
+        return
+      }
+      console.log(JSON.stringify(latestEvent, null, 2))
+      return
+    }
+
     const latest = await loadLatestIntegrationGraphSnapshotFromTrace()
     const view = buildIntegrationGraphView(latest)
     console.log(JSON.stringify(view, null, 2))

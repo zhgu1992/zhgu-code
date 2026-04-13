@@ -76,6 +76,45 @@
 2. MX-B2（transport/鉴权矩阵可运行）：完成 `wipx-06`
 3. MX-B3（规模化治理可验收）：完成 `wipx-07`
 
+## 追加记录：Skill 可用性缺口（rewrite 现状）
+
+- 记录日期：2026-04-13
+- 背景：用户在 `~/.claude/skills/` 下已有 skill（如 `tdd-workflow`），但在 `rewrite` 运行时“可见不可用”。
+
+### 现象与根因（已确认）
+
+1. 概念混淆：当前 CLI 对外主要展示的是 tools（9 个 builtin tool），不是可执行 skill 体系。
+2. 扫描范围有限：runtime 仅扫描 `<cwd>/.claude/skills` 与 `~/.claude/skills` 的一层目录（`<skill>/SKILL.md`）。
+3. 默认安全拒绝：`trustedSkills` 默认空集合，skill 会被标记 `security_untrusted_source`，因此 `callable=false`。
+4. 执行链未接通：当前实现以 integration 元数据为主（可扫描/可观测），尚未把 `SKILL.md` 内容稳定注入到 query 执行链，导致“识别到 skill 节点”不等于“可触发 skill 能力”。
+5. 快照认知偏差：`integration graph` 默认读取 trace 最新快照；若会话/trace 未更新，可能看到旧 skill 名称。已补充 `integration graph --latest` 用于读取最新原始快照事件。
+
+### 对应代码位置（用于后续开发）
+
+1. skill 目录解析：`rewrite/src/platform/integration/runtime-input.ts`
+2. skill 目录扫描与 `SKILL.md` 校验：`rewrite/src/platform/integration/plugin/loader.ts`
+3. skill 信任判定：`rewrite/src/platform/integration/security/guard.ts`
+4. integration 快照视图：`rewrite/src/application/query/context-view.ts`
+5. CLI 快照入口：`rewrite/src/cli/index.ts`
+
+### 纳入 Extra-B 的后续任务（建议）
+
+1. INTX-SKILL-001（信任策略落地）
+- 目标：增加可配置 `trustedSkills`（支持显式白名单或开发模式策略），避免默认全部拒绝。
+- 验收：指定 skill（如 `tdd-workflow`）可从 `callable=false` 变为 `callable=true`，并保留审计日志。
+
+2. INTX-SKILL-002（Skill 执行链接入）
+- 目标：把已授权 skill 的 `SKILL.md` 内容接入 query 构建链（至少支持单 skill 命中注入）。
+- 验收：输入“使用 tdd-workflow …”时，trace 中能看到 skill 命中与注入证据，并对模型行为产生可验证影响。
+
+3. INTX-SKILL-003（可观测与自检命令）
+- 目标：提供 skills 专用可观测命令（区分 tools 与 skills），并展示 trust/callable/reason。
+- 验收：一条命令可列出当前 skills 的 `name/state/callable/reason/loadedFrom/updatedAt`。
+
+4. INTX-SKILL-004（误读防护）
+- 目标：在 CLI 文案中显式区分“tool 列表”和“skill 列表”，避免误解“9 tools = 9 skills”。
+- 验收：用户查询“我有哪些 skill”时返回 skill 维度数据，不再输出 tool 维度替代结果。
+
 ## 建议验收命令（B 轨草案）
 
 1. `bun run build`
