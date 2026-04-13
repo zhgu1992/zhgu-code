@@ -5,6 +5,7 @@ import type { AppStore } from '../../state/store.js'
 import { executeTool } from '../../tools/executor.js'
 import { getTools } from '../../tools/registry.js'
 import { createIntegrationRegistryAdapter } from '../../platform/integration/registry/adapter.js'
+import { buildRuntimeIntegrationRegistryInput } from '../../platform/integration/runtime-input.js'
 import type { TurnStateMachine } from './turn-state.js'
 import { classifyToolResult } from './errors.js'
 import { createRecoveryEventPayload, decideRecovery, sleep } from './recovery.js'
@@ -39,7 +40,12 @@ export async function executeToolAndPersist(
     sessionId: state.sessionId,
     traceId: state.traceId,
   })
-  integrationRegistry.rebuild()
+  const integrationInput = await buildRuntimeIntegrationRegistryInput({
+    cwd: state.cwd,
+    sessionId: state.sessionId,
+    traceId: state.traceId,
+  })
+  integrationRegistry.rebuild(integrationInput)
   const callResolution = integrationRegistry.resolveToolCall(call.name)
   if (!callResolution.callable) {
     const errorPayload = JSON.stringify(callResolution.reason)

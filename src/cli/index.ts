@@ -2,7 +2,12 @@ import { Command } from 'commander'
 import { startREPL } from '../core/repl.js'
 import { VERSION } from '../definitions/constants/index.js'
 import { getAPIConfig } from '../services/config.js'
-import { buildContextView, loadLatestContextSnapshotFromTrace } from '../application/query/context-view.js'
+import {
+  buildContextView,
+  buildIntegrationGraphView,
+  loadLatestContextSnapshotFromTrace,
+  loadLatestIntegrationGraphSnapshotFromTrace,
+} from '../application/query/context-view.js'
 
 export const program = new Command()
 
@@ -17,6 +22,17 @@ program
   .action(async () => {
     const latest = await loadLatestContextSnapshotFromTrace()
     const view = buildContextView(latest)
+    console.log(JSON.stringify(view, null, 2))
+  })
+
+program
+  .command('integration')
+  .description('Show integration snapshots from provider trace')
+  .command('graph')
+  .description('Show latest integration registry graph snapshot')
+  .action(async () => {
+    const latest = await loadLatestIntegrationGraphSnapshotFromTrace()
+    const view = buildIntegrationGraphView(latest)
     console.log(JSON.stringify(view, null, 2))
   })
 

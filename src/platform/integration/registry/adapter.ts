@@ -29,6 +29,7 @@ import type {
   ModelToolSchema,
   ToolCallResolution,
 } from "./types.js";
+import { buildIntegrationRegistryGraphSnapshot } from "./graph.js";
 
 interface ToolRegistryLike {
   getAll(): Tool[];
@@ -117,6 +118,17 @@ export function createIntegrationRegistryAdapter(
       conflicts,
       sourceCounts: countBySource(capabilities),
     };
+
+    buildIntegrationRegistryGraphSnapshot(
+      {
+        capabilities,
+        modelCallableTools,
+      },
+      {
+        sessionId: options.sessionId,
+        traceId: options.traceId,
+      },
+    );
 
     emitSummary(summary);
     return summary;

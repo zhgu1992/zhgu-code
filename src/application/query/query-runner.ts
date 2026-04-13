@@ -7,6 +7,7 @@ import { createSpanId, createTurnId } from '../../observability/ids.js'
 import { getTraceBus } from '../../observability/trace-bus.js'
 import type { AppStore } from '../../state/store.js'
 import { createIntegrationRegistryAdapter } from '../../platform/integration/registry/adapter.js'
+import { buildRuntimeIntegrationRegistryInput } from '../../platform/integration/runtime-input.js'
 import {
   createTurnStateMachine,
   IllegalTurnTransitionError,
@@ -68,7 +69,12 @@ export async function runQuery(store: AppStore, options?: QueryOptions): Promise
     sessionId: state.sessionId,
     traceId: state.traceId,
   })
-  integrationRegistry.rebuild()
+  const integrationInput = await buildRuntimeIntegrationRegistryInput({
+    cwd: state.cwd,
+    sessionId: state.sessionId,
+    traceId: state.traceId,
+  })
+  integrationRegistry.rebuild(integrationInput)
   const quiet = options?.quiet ?? state.quiet
   const emitStdout = options?.emitStdout ?? true
   const messages = state.messages.map(formatMessageForAPI)

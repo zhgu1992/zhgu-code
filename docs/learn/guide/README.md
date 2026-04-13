@@ -12,3 +12,4 @@
 1. [Phase 1 - Query Engine v2：核心功能与设计思路](./phase-1-query-engine-v2/README.md)
 2. [Phase 2 - Execution Plane：核心功能与设计思路](./phase-2-execution-plane/README.md)
 3. [Phase 2.5 - Context Monitoring Plane：核心功能与设计思路](./phase-2-5-context-monitoring-plane/README.md)
+4. [Phase 3 - Integration Plane：`integration graph` 使用说明](./phase-3-integration-plane/README.md)

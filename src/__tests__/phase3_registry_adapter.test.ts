@@ -223,9 +223,11 @@ describe("WP3-C Registry Adapter", () => {
     );
 
     expect(queryRunnerSource).toContain("createIntegrationRegistryAdapter");
+    expect(queryRunnerSource).toContain("buildRuntimeIntegrationRegistryInput");
     expect(queryRunnerSource).toContain("integrationRegistry.listModelCallableTools()");
     expect(queryRunnerSource).not.toContain("tools.toAPISchema()");
 
+    expect(toolRuntimeSource).toContain("buildRuntimeIntegrationRegistryInput");
     expect(toolRuntimeSource).toContain("resolveToolCall(call.name)");
     expect(toolRuntimeSource).toContain("registry_not_callable");
   });
