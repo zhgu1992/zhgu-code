@@ -14,3 +14,5 @@ export interface IntegrationRegistry {
 
 export * from './mcp/types.js'
 export * from './mcp/lifecycle.js'
+export * from './plugin/types.js'
+export * from './plugin/loader.js'

@@ -1,6 +1,6 @@
 # Phase 3 - Integration Plane
 
-- Status: Not Started
+- Status: In Progress
 - Updated: 2026-04-13
 
 ## 启动前对标结论（必填）
@@ -75,7 +75,7 @@
 |---|---|---|---|---|---|---|
 | `wip3-01` 对标与门禁基线 | Phase 3 仍为模板态，缺少可执行门禁 | 固化接入层对标范围与实施顺序，避免边做边改 | 完成对标证据、WIP 门禁、里程碑、命令清单 | 文档可直接排期且门禁字段完整 | 不通过仅回退文档 | Pending |
 | `wip3-02` 最小 MCP 生命周期通路 | 缺少连接发现/可用性统一流程，导致外部能力不可控 | 用最小状态机跑通 1 条外部通路 | 新增 lifecycle manager（最小状态 + 重试 + 禁用） | `MCP-001~004` 通过 | 保留静态配置直连兜底 | Pending |
-| `wip3-03` 最小 Plugin/Skill 装载协议 | 装载元数据与禁用策略未统一 | 统一最小 manifest 校验与禁用回退 | 新增 loader/validator 与错误语义 | `PLG-001~005` 通过 | 装载失败降级为禁用该项 | Pending |
+| `wip3-03` 最小 Plugin/Skill 装载协议 | 装载元数据与禁用策略未统一 | 统一最小 manifest 校验与禁用回退 | 新增 loader/validator 与错误语义 | `PLG-001~006` 通过 | 装载失败降级为禁用该项 | Done |
 | `wip3-04` 统一注册面接线 | 内建与外接能力注册口径分离 | 内建/外接统一目录输出，主链路单入口消费 | 新增 registry adapter 并接线 query/tool runtime | `REG-001~005` 通过 | 回退到内建 registry | Pending |
 | `wip3-05` 最小安全隔离与熔断 | 外接能力边界缺少统一约束 | 提供最小来源校验和按 provider/plugin 熔断能力 | 来源校验、协议校验、开关禁用 | `SEC-001~004` 通过 | 开关禁用外接能力 | Pending |
 | `wip3-06` 收口验收与延期交接 | 缺少阶段级验收与“延期到 Extra-B”清单 | 形成可重复验收 + 延期项交接包 | 汇总测试、对标结论、回滚脚本、deferred list | `phase3_* + 前置门` 全绿 | 未达标不推进 Phase 4/5 | Pending |
@@ -125,8 +125,52 @@
 ### WP3-B：最小 Plugin/Skill 装载协议（对应 `wip3-03`）
 
 - 目标：定义并实现最小统一装载协议。
-- 产出：manifest 校验器、版本策略、禁用与回退机制。
+- 产出：
+  - `src/platform/integration/plugin/types.ts`
+  - `src/platform/integration/plugin/loader.ts`
+  - `src/__tests__/phase3_plugin_skill_loader.test.ts`
 - 验收：装载成功与失败路径均可断言。
+
+#### WP3-B 设计核心（必须先达成共识）
+
+1. 为什么做（Why）
+- 当前 Plugin/Skill 装载缺少统一入口，失败策略不一致，导致“能否加载、为何失败、是否可回退”不可治理。
+
+2. 问题与边界
+- In Scope：最小 manifest 校验、最小版本策略、禁用与回退、结构化失败原因、可追溯事件、兼容 claude-code-run 内置 skill 读取语义（bundled/skills/plugin 三来源最小并集）。
+- Out of Scope：复杂依赖解析、签名校验、供应链策略包、远端拉取与多源同步（延期到 Extra-B）。
+
+3. 核心设计
+- 统一装载状态：`discovered -> loaded | disabled`。
+- 统一错误语义：失败必须输出 `source/module/reasonCode/userMessage/retryable/detail?`。
+- 最小 manifest 约束：
+  - Plugin：优先读取 `.claude-plugin/plugin.json`；缺失时允许 fallback（`name=目录名`，`version=0.0.0-implicit`）。
+  - Skill：要求存在 `SKILL.md`；可选 `skill.json` 扩展元数据。
+- 最小版本策略：
+  - 缺失 `version` 允许装载并打隐式版本标记。
+  - 非法版本或不兼容 `apiVersion` 进入 `disabled`。
+- 内置 skill 兼容读取（新增）：
+  - 对标 `claude-code-run/src/skills/bundledSkills.ts` 与 `src/skills/loadSkillsDir.ts` 的核心能力，至少支持 `SKILL.md` 目录格式与程序注册型 bundled skills。
+  - 对标 `claude-code-run/src/commands.ts` 的聚合语义，统一输出 `loadedFrom` 来源标记（`bundled/skills/plugin`）供后续 registry 使用。
+  - 简化原则：仅保留最小读取与元数据解析链路，不复制主仓的远端技能检索、复杂特性开关和大规模缓存策略。
+- 回退策略：单项装载失败只禁用该项，不阻断其余装载链路；可回退到“仅内建能力”模式。
+
+4. 验证 Case（DoD）
+- `PLG-001` 有效 Plugin manifest 装载成功并进入 `loaded`。
+- `PLG-002` manifest 缺失时按 fallback 策略装载成功并可查询隐式版本。
+- `PLG-003` manifest 非法时进入 `disabled` 且输出结构化失败原因。
+- `PLG-004` 版本不兼容时进入 `disabled` 且 `reasonCode=version_incompatible`。
+- `PLG-005` 被禁用项不会再次被调度，且不影响其他项装载。
+- `PLG-006` 能读取并装载内置 bundled skill（含 `loadedFrom=bundled` 元数据），用于回归验证既有技能。
+
+5. 对标参考（Skill 读取）
+- 聚合与筛选：`claude-code-run/src/commands.ts`（`getSkills/getSkillToolCommands`）。
+- 本地技能目录读取：`claude-code-run/src/skills/loadSkillsDir.ts`（`skill-name/SKILL.md` 目录格式、去重与容错）。
+- 内置技能注册：`claude-code-run/src/skills/bundledSkills.ts` 与 `src/skills/bundled/index.ts`（启动期程序注册）。
+- 插件技能读取：`claude-code-run/src/utils/plugins/loadPluginCommands.ts`（`skillsPath/skillsPaths` 与 `SKILL.md` 发现）。
+
+6. 风险与回滚
+- 若统一装载协议引发回归，可暂时回退到“内建工具 + 静态技能目录”的最小模式，并保留失败事件用于追查。
 
 ### WP3-C：统一注册面（对应 `wip3-04`）
 
