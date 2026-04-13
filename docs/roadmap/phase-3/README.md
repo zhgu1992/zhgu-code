@@ -5,8 +5,8 @@
 
 ## 启动前对标结论（必填）
 
-- 对标状态: Pending（未完成对标，禁止进入实现）
-- 对标日期: 待执行（启动当日填写）
+- 对标状态: Completed
+- 对标日期: 2026-04-13
 - 对标范围: MCP / Plugin / Skill Integration
 - 参考源码（启动时逐项核对）:
   - `claude-code-run/src/services/mcp/*`
@@ -18,13 +18,15 @@
 ### 基线结论（待对标完成后冻结）
 
 1. 已对齐项:
-- 暂无（待对标完成后补齐）。
+- MCP 生命周期最小状态机与结构化失败语义已落地（`phase3_mcp_lifecycle.test.ts`）。
+- Plugin/Skill 最小装载协议与 `loadedFrom` 来源语义已落地（`phase3_plugin_skill_loader.test.ts`）。
+- 统一注册面（内建 + 外接）与安全门/熔断接线已落地（`phase3_registry_adapter.test.ts`、`phase3_integration_security.test.ts`）。
 2. 差异项:
-- 能力覆盖: 待对标确认（最小 MCP 通路、最小装载协议、统一注册面）。
-- 稳定性: 待对标确认（连接降级、故障隔离、禁用回退）。
-- 可观测性: 待对标确认（接入失败原因与事件链路）。
-- 安全边界: 待对标确认（来源可信度、版本校验、权限约束）。
-- 复杂度: 待对标确认（接入层与 Query 核心耦合度）。
+- 能力覆盖: 重型 transport、复杂鉴权、企业策略包仍延期到 Extra-B。
+- 稳定性: 已具备 provider/plugin 粒度熔断，但规模化连接治理仍在 Extra-B。
+- 可观测性: 已具备注册重建与安全决策事件，尚未覆盖 Extra-B 级连接指标。
+- 安全边界: Phase 3 仅冻结最小来源校验和默认 deny，签名与供应链增强延期。
+- 复杂度: 当前接入层与 Query 主链路解耦已达成，后续复杂编排保持在 Extra-B。
 3. 本阶段范围:
 - In Scope: 最小可用接入平面（统一注册面、最小装载协议、最小 MCP 通路、最小安全隔离）。
 - Out of Scope: 重型接入能力（复杂鉴权矩阵、多 transport 扩展、企业策略包、连接规模化治理）。
@@ -74,12 +76,12 @@
 
 | WIP | 为什么做 + 问题与边界 | 超越目标 | 核心设计 | 验证Case/DoD | 风险回滚 | 状态 |
 |---|---|---|---|---|---|---|
-| `wip3-01` 对标与门禁基线 | Phase 3 仍为模板态，缺少可执行门禁 | 固化接入层对标范围与实施顺序，避免边做边改 | 完成对标证据、WIP 门禁、里程碑、命令清单 | 文档可直接排期且门禁字段完整 | 不通过仅回退文档 | Pending |
+| `wip3-01` 对标与门禁基线 | Phase 3 仍为模板态，缺少可执行门禁 | 固化接入层对标范围与实施顺序，避免边做边改 | 完成对标证据、WIP 门禁、里程碑、命令清单 | 文档可直接排期且门禁字段完整 | 不通过仅回退文档 | Completed |
 | `wip3-02` 最小 MCP 生命周期通路 | 缺少连接发现/可用性统一流程，导致外部能力不可控 | 用最小状态机跑通 1 条外部通路 | 新增 lifecycle manager（最小状态 + 重试 + 禁用） | `MCP-001~004` 通过 | 保留静态配置直连兜底 | Pending |
 | `wip3-03` 最小 Plugin/Skill 装载协议 | 装载元数据与禁用策略未统一 | 统一最小 manifest 校验与禁用回退 | 新增 loader/validator 与错误语义 | `PLG-001~006` 通过 | 装载失败降级为禁用该项 | Done |
 | `wip3-04` 统一注册面接线 | 内建与外接能力注册口径分离 | 内建/外接统一目录输出，主链路单入口消费 | 新增 registry adapter 并接线 query/tool runtime | `REG-001~005` 通过 | 回退到内建 registry | Pending |
 | `wip3-05` 最小安全隔离与熔断 | 外接能力边界缺少统一约束 | 提供最小来源校验和按 provider/plugin 熔断能力 | 来源校验、协议校验、开关禁用 | `SEC-001~004` 通过 | 开关禁用外接能力 | Pending |
-| `wip3-06` 收口验收与延期交接 | 缺少阶段级验收与“延期到 Extra-B”清单 | 形成可重复验收 + 延期项交接包 | 汇总测试、对标结论、回滚脚本、deferred list | `phase3_* + 前置门` 全绿 | 未达标不推进 Phase 4/5 | Pending |
+| `wip3-06` 收口验收与延期交接 | 缺少阶段级验收与“延期到 Extra-B”清单 | 形成可重复验收 + 延期项交接包 | 汇总测试、对标结论、回滚脚本、deferred list | `phase3_* + 前置门` 全绿 | 未达标不推进 Phase 4/5 | Done |
 | `wip3-07` 最小可视化接线 | 接入问题排查依赖读日志，定位慢 | 让“能力来源/状态/冲突/可调用性”可视化可核对 | 新增 registry graph snapshot 与 query 命令入口 | `VIS-001~004` 通过 | 回退到文本摘要输出 | Pending |
 
 ## 阶段完成标准（DoD）
@@ -306,6 +308,64 @@
 - 目标：形成可重复验收、文档回写与延期项交接。
 - 产出：验收报告、回滚预案、主路线图更新、Deferred 清单。
 - 验收：Phase 3 专项门禁全绿，且延期项均映射到 Phase Extra-B。
+- 收口包：
+  - `docs/roadmap/phase-3/phase3-acceptance.md`
+  - `docs/roadmap/phase-3/phase3-rollback.md`
+  - `docs/roadmap/phase-3/phase3-deferred-map.md`
+
+#### WP3-E 设计核心（必须先达成共识）
+
+1. 为什么做（Why）
+- `wip3-02~05` 已分别覆盖“通路/装载/注册/安全”，但缺少阶段级“统一收口动作”会导致证据散落、门禁不可复核、延期项无人承接。
+- 若不在 Phase 3 末端冻结 Deferred 映射，Extra-B 会在无边界条件下接手，产生范围漂移与重复实现。
+
+2. 问题与边界
+- In Scope：阶段级验收基线冻结、测试证据汇总、风险与回滚脚本归档、Deferred 到 Extra-B 的一一映射、主路线图状态回写。
+- Out of Scope：新增功能开发、Extra-B 方案实现、重型 transport/鉴权细节设计（只做映射不做实现）。
+
+3. 核心设计
+- 收口包结构（建议）：
+  - `phase3-acceptance.md`：记录 `phase3_*` 测试结果、前置门结论、失败项与豁免说明。
+  - `phase3-rollback.md`：记录“仅内建模式”、provider/plugin 熔断、禁用开关等回退路径与触发条件。
+  - `phase3-deferred-map.md`：记录 Deferred 项、风险等级、目标 Extra-B WIP、进入条件、验收责任人。
+- 冻结规则：
+  - 进入“Phase 3 Done”前必须满足：`phase3_*` 全绿 + `wip3-01` 对标结论已冻结 + Deferred 映射完整。
+  - 任一条件不满足时，`wip3-06` 不得标记 Done，也不得推进 Phase 4/5 默认路径。
+- Deferred 映射规则：
+  - 每条 Deferred 必须绑定 `wipx-05/06/07` 中唯一承接位，并标注“前置输入”和“回退基线（Phase 3 最小闭环）”。
+  - Deferred 描述必须保留“为何延期 + 不延期的风险 + 预计收益”，避免 Extra-B 重新做范围讨论。
+- 文档回写点：
+  - `docs/roadmap/README.md` 更新里程碑状态。
+  - `docs/roadmap/phase-extra/extra-b-integration-advanced.md` 回填 Deferred 映射完成度（至少标记已消费项）。
+
+4. 验证 Case（DoD）
+- `CLS-001` `phase3_*` 与前置门结果可追溯到单一验收报告，且结果与 CI 一致。
+- `CLS-002` 每条 Deferred 均有 Extra-B 承接位、进入条件与回退基线，无“悬空项”。
+- `CLS-003` Phase 3 的风险与回滚路径可在 30 分钟内执行“仅内建模式”切换演练。
+- `CLS-004` 主路线图与 Phase Extra-B 文档状态一致，不出现“Phase 3 已收口但 Extra-B 未接盘”的状态漂移。
+
+5. 对标参考（收口与交接）
+- Phase 3 门禁与 WIP：`rewrite/docs/roadmap/phase-3/README.md`
+- Extra-B 承接入口：`rewrite/docs/roadmap/phase-extra/extra-b-integration-advanced.md`
+- 主路线图索引：`rewrite/docs/roadmap/README.md`
+
+6. 风险与回滚
+- 风险 1：测试全绿但文档未回写，造成“事实完成/流程未完成”分叉。
+  - 回滚：以 `wip3-06` 为唯一关口，未回写即不允许 Phase 状态改为 Done。
+- 风险 2：Deferred 映射过粗，Extra-B 接手后重新拆分导致排期漂移。
+  - 回滚：按 `Deferred -> wipx-05/06/07` 一一映射重做收口包，不通过不出关。
+- 风险 3：回滚预案不可执行，事故时只能人工临场决策。
+  - 回滚：在收口阶段执行一次“仅内建模式”演练，并将步骤写入 `phase3-rollback.md`。
+
+#### Deferred -> Extra-B 承接映射（WP3-E 冻结版）
+
+| Phase 3 Deferred | Extra-B 承接位 | 前置输入 | 回退基线 |
+|---|---|---|---|
+| 多 transport 扩展（`stdio/http/sse/ws`）与连接池治理 | `wipx-06` / `wipx-07` | `WP3-A` 生命周期与 `WP3-D` 熔断快照 | 回退到 Phase 3 单最小通路 |
+| 复杂鉴权矩阵（OAuth/XAA/企业代理）与凭据轮换 | `wipx-06` | `WP3-D` 最小来源校验与拒绝语义 | 回退到最小来源校验 + 手动禁用 |
+| 规模化连接治理（批量预热、并发控制、SLO 与熔断策略） | `wipx-07` | `WP3-A/WP3-D` 状态与熔断事件 | 回退到 provider/plugin 粒度熔断 |
+| 企业策略包（来源白名单、版本签名、供应链增强） | `wipx-07` | `WP3-D` 安全门决策结构 | 回退到 Phase 3 默认 deny + 审计 |
+| 生态扩展模板（外部能力接入脚手架与准入检查） | `wipx-05` | `WP3-B/WP3-C` 装载与注册协议 | 回退到手工接入清单流程 |
 
 ### WP3-F：最小可视化接线（对应 `wip3-07`）
 

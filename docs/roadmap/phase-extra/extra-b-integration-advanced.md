@@ -38,6 +38,18 @@
 1. 先消费 [Phase 3 README](../phase-3/README.md) 中 Deferred to Extra-B 清单。
 2. Deferred 映射不完整时，禁止进入实现。
 
+## Deferred 映射消费状态（来自 Phase 3 收口包）
+
+来源文档：`docs/roadmap/phase-3/phase3-deferred-map.md`
+
+| Deferred ID | Item | Target WIP | Current Status |
+|---|---|---|---|
+| `DEF-001` | 多 transport 扩展与连接池治理 | `wipx-06` | Ready |
+| `DEF-002` | 复杂鉴权矩阵与凭据轮换 | `wipx-06` | Ready |
+| `DEF-003` | 规模化连接治理（批量预热/并发/SLO） | `wipx-07` | Ready |
+| `DEF-004` | 企业策略包（白名单/签名/供应链） | `wipx-07` | Ready |
+| `DEF-005` | 生态扩展模板与准入检查 | `wipx-05` | Ready |
+
 ## WIP 执行门禁记录（B 轨）
 
 | WIP | 为什么做 + 问题与边界 | 超越目标 | 核心设计 | 验证Case/DoD | 风险回滚 | 状态 |
