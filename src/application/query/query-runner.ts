@@ -48,6 +48,10 @@ export async function runQuery(store: AppStore, options?: QueryOptions): Promise
   let providerRecoveryAttempt = 0
   let totalRecoveryAttempt = 0
   const maxTotalRecoveryAttempts = getDefaultMaxTotalRecoveryAttempts()
+  const resolvePlanIdForTurn = (): string => {
+    const runtimeState = store.getState()
+    return runtimeState.orchestratorRuntimeSession.activePlan?.planId ?? `plan_${runtimeState.sessionId}`
+  }
 
   const turnStateMachine = createTurnStateMachine({
     onTransition: (transition) => {
@@ -55,7 +59,7 @@ export async function runQuery(store: AppStore, options?: QueryOptions): Promise
       options?.onTurnTransition?.(transition)
     },
   })
-  turnStateMachine.transition({ type: 'turn_start', turnId })
+  turnStateMachine.transition({ type: 'turn_start', turnId, planId: resolvePlanIdForTurn() })
 
   emitTurnStartTrace({
     traceBus,
@@ -301,6 +305,8 @@ export async function runQuery(store: AppStore, options?: QueryOptions): Promise
             turnStateMachine.transition({
               type: 'tool_use_detected',
               toolMode: state.permissionMode === 'ask' ? 'ask' : 'auto',
+              planId: resolvePlanIdForTurn(),
+              taskId: event.id,
             })
             state.setStreamingText(`🔧 Tool: ${event.name}`)
             if (!quiet && emitStdout) {
@@ -320,6 +326,11 @@ export async function runQuery(store: AppStore, options?: QueryOptions): Promise
                 name: s.currentTool.name,
                 input: s.currentTool.input,
               },
+              orchestratorContext: {
+                turnId,
+                planId: resolvePlanIdForTurn(),
+                taskId: s.currentTool.id,
+              },
               assistantContent: s.assistantContent,
               turnStateMachine,
               recoveryBudget: {
@@ -337,6 +348,8 @@ export async function runQuery(store: AppStore, options?: QueryOptions): Promise
             turnStateMachine.transition({
               type: 'tool_use_detected',
               toolMode: state.permissionMode === 'ask' ? 'ask' : 'auto',
+              planId: resolvePlanIdForTurn(),
+              taskId: event.id,
             })
             if (!quiet && emitStdout) {
               console.log(`\n🔧 Tool: ${event.name}`)
@@ -344,6 +357,11 @@ export async function runQuery(store: AppStore, options?: QueryOptions): Promise
             return executeToolAndPersist({
               store,
               call: { id: event.id, name: event.name, input: event.input },
+              orchestratorContext: {
+                turnId,
+                planId: resolvePlanIdForTurn(),
+                taskId: event.id,
+              },
               assistantContent: s.assistantContent,
               turnStateMachine,
               recoveryBudget: {

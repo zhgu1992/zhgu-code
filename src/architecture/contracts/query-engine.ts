@@ -37,6 +37,8 @@ export interface QueryTurnTransition {
   to: QueryTurnState
   event: QueryTurnEvent
   reason?: QueryTurnStopReason
+  planId?: string
+  taskId?: string
 }
 
 export interface QueryTurnBudget {

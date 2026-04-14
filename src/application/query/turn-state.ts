@@ -11,6 +11,8 @@ export interface TurnTransitionInput {
   type: QueryTurnEvent
   turnId?: string
   toolMode?: ToolExecutionMode
+  planId?: string
+  taskId?: string
 }
 
 export interface TurnMachineSnapshot {
@@ -67,13 +69,20 @@ export class TurnStateMachine {
     this.assertInvariants(nextSnapshot)
     this.snapshot = nextSnapshot
 
-    this.options.onTransition?.({
+    const transition: QueryTurnTransition = {
       turnId: nextSnapshot.turnId,
       from,
       to,
       event: input.type,
       reason: stopReason ?? undefined,
-    })
+    }
+    if (input.planId) {
+      transition.planId = input.planId
+    }
+    if (input.taskId) {
+      transition.taskId = input.taskId
+    }
+    this.options.onTransition?.(transition)
 
     return this.getSnapshot()
   }

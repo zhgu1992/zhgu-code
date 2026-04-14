@@ -151,6 +151,51 @@ describe('Phase 4: Experience Optimization', () => {
       expect(store.getState().isStreaming).toBe(true)
     })
   })
+
+  describe('P45-S02 Turn Link Compatibility', () => {
+    test('should keep no-plan scenario compatible while recording turn plan link', () => {
+      store.getState().applyTurnTransition({
+        turnId: 'turn_no_plan_1',
+        from: 'idle',
+        to: 'streaming',
+        event: 'turn_start',
+      })
+
+      expect(store.getState().turnState).toBe('streaming')
+      expect(store.getState().turnOrchestratorLinks.turn_no_plan_1).toBeUndefined()
+    })
+
+    test('should append unique task ids under the same turn-plan mapping', () => {
+      store.getState().applyTurnTransition({
+        turnId: 'turn_with_plan_1',
+        from: 'idle',
+        to: 'streaming',
+        event: 'turn_start',
+        planId: 'plan_with_tasks_1',
+      })
+      store.getState().applyTurnTransition({
+        turnId: 'turn_with_plan_1',
+        from: 'streaming',
+        to: 'tool-running',
+        event: 'tool_use_detected',
+        planId: 'plan_with_tasks_1',
+        taskId: 'task_a',
+      })
+      store.getState().applyTurnTransition({
+        turnId: 'turn_with_plan_1',
+        from: 'streaming',
+        to: 'tool-running',
+        event: 'tool_use_detected',
+        planId: 'plan_with_tasks_1',
+        taskId: 'task_a',
+      })
+
+      expect(store.getState().turnOrchestratorLinks.turn_with_plan_1).toMatchObject({
+        planId: 'plan_with_tasks_1',
+        taskIds: ['task_a'],
+      })
+    })
+  })
 })
 
 describe('Error Display Helper Functions', () => {

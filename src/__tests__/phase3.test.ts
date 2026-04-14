@@ -27,6 +27,7 @@ function createMockStore(overrides: Partial<AppState> = {}) {
     currentTurnId: null,
     turnState: 'idle',
     turnStopReason: null,
+    turnOrchestratorLinks: {},
     lastContextHealthSnapshot: null,
     lastContextHealthUpdatedAt: null,
     orchestratorRuntimeSession: createRuntimeSessionSnapshot({
@@ -42,6 +43,7 @@ function createMockStore(overrides: Partial<AppState> = {}) {
     setContext: (context) => set({ context }),
     setCurrentTurnId: (turnId) => set({ currentTurnId: turnId }),
     setTurnState: (turnState, reason = null) => set({ turnState, turnStopReason: reason }),
+    upsertTurnOrchestratorLink: () => undefined,
     setContextHealthSnapshot: (snapshot, updatedAt = new Date().toISOString()) =>
       set({
         lastContextHealthSnapshot: snapshot,

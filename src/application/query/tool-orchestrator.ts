@@ -28,6 +28,11 @@ export type ToolOrchestrationResult = 'handoff' | 'stopped'
 interface ExecuteToolAndPersistArgs {
   store: AppStore
   call: ToolCall
+  orchestratorContext?: {
+    turnId?: string
+    planId: string
+    taskId: string
+  }
   assistantContent: ContentBlock[]
   turnStateMachine: TurnStateMachine
   recoveryBudget: {
@@ -43,8 +48,15 @@ export async function executeToolAndPersist(
   const { store, call, assistantContent, turnStateMachine, recoveryBudget } = args
   const state = store.getState()
   const traceBus = getTraceBus()
+  const orchestrationLink = resolveOrchestrationLink({
+    sessionId: state.sessionId,
+    mode: state.permissionMode,
+    activePlan: state.orchestratorRuntimeSession.activePlan,
+    fallbackTaskId: call.id,
+    context: args.orchestratorContext,
+  })
   const taskLifecycle = createTaskLifecycleModel({
-    taskId: call.id,
+    taskId: orchestrationLink.taskId,
     title: `tool:${call.name}`,
   })
   taskLifecycle.transition('start')
@@ -77,6 +89,8 @@ export async function executeToolAndPersist(
       span_id: createSpanId(),
       payload: {
         toolName: call.name,
+        planId: orchestrationLink.planId,
+        taskId: orchestrationLink.taskId,
         capabilityId: callResolution.capability?.capabilityId,
         reason: callResolution.reason,
       },
@@ -90,9 +104,10 @@ export async function executeToolAndPersist(
     state.sessionId,
     state.permissionMode,
     state.orchestratorRuntimeSession.activePlan,
+    orchestrationLink.planId,
   )
   const taskAdmission = evaluateTaskAdmission(approvalContext, {
-    taskId: call.id,
+    taskId: orchestrationLink.taskId,
   })
   emitApprovalAuditEvents({
     traceBus,
@@ -106,10 +121,10 @@ export async function executeToolAndPersist(
   if (!taskAdmission.allowed) {
     const result = formatApprovalDeniedResult(
       taskAdmission.reasonCode,
-      `Task ${call.id} is not admitted`,
+      `Task ${orchestrationLink.taskId} is not admitted`,
       {
-        planId: approvalContext.planId,
-        taskId: call.id,
+        planId: orchestrationLink.planId,
+        taskId: orchestrationLink.taskId,
         toolName: call.name,
         effectiveMode: taskAdmission.effectiveMode,
       },
@@ -120,7 +135,7 @@ export async function executeToolAndPersist(
   }
 
   const toolApproval = evaluateToolCallApproval(approvalContext, {
-    taskId: call.id,
+    taskId: orchestrationLink.taskId,
     toolName: call.name,
   })
   emitApprovalAuditEvents({
@@ -137,8 +152,8 @@ export async function executeToolAndPersist(
       toolApproval.reasonCode,
       `Tool ${call.name} is blocked by orchestrator approval`,
       {
-        planId: approvalContext.planId,
-        taskId: call.id,
+        planId: orchestrationLink.planId,
+        taskId: orchestrationLink.taskId,
         toolName: call.name,
         effectiveMode: toolApproval.effectiveMode,
         driftDetected: toolApproval.driftDetected,
@@ -197,6 +212,8 @@ export async function executeToolAndPersist(
           blockedByIdempotency: decision.blockedByIdempotency,
         }),
         tool_name: call.name,
+        planId: orchestrationLink.planId,
+        taskId: orchestrationLink.taskId,
       }
 
       traceBus.emit({
@@ -330,6 +347,7 @@ function buildApprovalContext(
   sessionId: string,
   mode: 'ask' | 'auto' | 'plan',
   activePlan: ActivePlanContextSnapshot | null,
+  preferredPlanId?: string,
 ): {
   planId: string
   planMode: 'ask' | 'auto' | 'plan'
@@ -344,9 +362,41 @@ function buildApprovalContext(
   }
 
   return {
-    planId: `plan_${sessionId}`,
+    planId: preferredPlanId ?? `plan_${sessionId}`,
     planMode: mode,
     planApprovalStatus: mode === 'plan' ? 'pending' : 'approved',
+  }
+}
+
+function resolveOrchestrationLink(args: {
+  sessionId: string
+  mode: 'ask' | 'auto' | 'plan'
+  activePlan: ActivePlanContextSnapshot | null
+  fallbackTaskId: string
+  context?: {
+    turnId?: string
+    planId: string
+    taskId: string
+  }
+}): { turnId?: string; planId: string; taskId: string } {
+  if (args.context) {
+    return {
+      turnId: args.context.turnId,
+      planId: args.context.planId,
+      taskId: args.context.taskId,
+    }
+  }
+
+  if (args.activePlan) {
+    return {
+      planId: args.activePlan.planId,
+      taskId: args.fallbackTaskId,
+    }
+  }
+
+  return {
+    planId: `plan_${args.sessionId}`,
+    taskId: args.fallbackTaskId,
   }
 }
 

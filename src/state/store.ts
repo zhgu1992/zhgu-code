@@ -43,6 +43,12 @@ export interface ToolProgress {
   elapsedTimeSeconds?: number
 }
 
+export interface TurnOrchestratorLinkSnapshot {
+  planId: string
+  taskIds: string[]
+  updatedAt: string
+}
+
 export interface AppState {
   // Config
   sessionId: string
@@ -55,6 +61,7 @@ export interface AppState {
   currentTurnId: string | null
   turnState: QueryTurnState
   turnStopReason: QueryTurnStopReason | null
+  turnOrchestratorLinks: Record<string, TurnOrchestratorLinkSnapshot>
   lastContextHealthSnapshot: ContextHealthSnapshot | null
   lastContextHealthUpdatedAt: string | null
   orchestratorRuntimeSession: RuntimeSessionSnapshot
@@ -87,6 +94,12 @@ export interface AppActions {
   setCurrentTurnId: (turnId: string | null) => void
   setTurnState: (state: QueryTurnState, reason?: QueryTurnStopReason | null) => void
   applyTurnTransition: (transition: QueryTurnTransition) => void
+  upsertTurnOrchestratorLink: (input: {
+    turnId: string
+    planId: string
+    taskId?: string
+    now?: string
+  }) => void
   setContextHealthSnapshot: (snapshot: ContextHealthSnapshot, updatedAt?: string) => void
   setActivePlanContext: (input: WriteActivePlanContextInput | null) => void
   patchActivePlanContext: (input: PatchActivePlanContextInput) => void
@@ -185,6 +198,7 @@ export function createStore(options: CreateStoreOptions): AppStore {
     currentTurnId: null,
     turnState: 'idle',
     turnStopReason: null,
+    turnOrchestratorLinks: {},
     lastContextHealthSnapshot: null,
     lastContextHealthUpdatedAt: null,
     orchestratorRuntimeSession: createRuntimeSessionSnapshot({ sessionId }),
@@ -204,6 +218,26 @@ export function createStore(options: CreateStoreOptions): AppStore {
     setCurrentTurnId: (turnId: string | null) => set({ currentTurnId: turnId }),
 
     setTurnState: (turnState, reason = null) => set({ turnState, turnStopReason: reason }),
+
+    upsertTurnOrchestratorLink: (input) =>
+      set((state) => {
+        const now = input.now ?? new Date().toISOString()
+        const previous = state.turnOrchestratorLinks[input.turnId]
+        const taskIds = previous?.taskIds ?? []
+        const nextTaskIds =
+          input.taskId && !taskIds.includes(input.taskId) ? [...taskIds, input.taskId] : taskIds
+
+        return {
+          turnOrchestratorLinks: {
+            ...state.turnOrchestratorLinks,
+            [input.turnId]: {
+              planId: input.planId,
+              taskIds: nextTaskIds,
+              updatedAt: now,
+            },
+          },
+        }
+      }),
 
     setContextHealthSnapshot: (snapshot, updatedAt = new Date().toISOString()) =>
       set({
@@ -242,8 +276,18 @@ export function createStore(options: CreateStoreOptions): AppStore {
           to: transition.to,
           event: transition.event,
           reason: transition.reason,
+          planId: transition.planId,
+          taskId: transition.taskId,
         },
       })
+
+      if (transition.turnId && transition.planId) {
+        state.upsertTurnOrchestratorLink({
+          turnId: transition.turnId,
+          planId: transition.planId,
+          taskId: transition.taskId,
+        })
+      }
 
       set({
         currentTurnId: transition.turnId,

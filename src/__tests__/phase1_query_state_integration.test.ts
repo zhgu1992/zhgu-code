@@ -89,4 +89,29 @@ describe('Phase 1 / WP1-A Query state integration', () => {
     expect(state.turnState).toBe('stopped')
     expect(state.turnStopReason).toBe('permission_denied')
   })
+
+  test('P45-S02 turn transition should persist turn -> plan -> task mapping', () => {
+    const store = createStore({
+      model: 'claude-sonnet-4-6',
+      permissionMode: 'auto',
+      quiet: true,
+      cwd: process.cwd(),
+    })
+
+    const machine = createTurnStateMachine({
+      onTransition: (transition) => store.getState().applyTurnTransition(transition),
+    })
+
+    machine.transition({ type: 'turn_start', turnId: 'turn_p45_1', planId: 'plan_p45_1' })
+    machine.transition({
+      type: 'tool_use_detected',
+      toolMode: 'auto',
+      planId: 'plan_p45_1',
+      taskId: 'task_p45_1',
+    })
+
+    const link = store.getState().turnOrchestratorLinks.turn_p45_1
+    expect(link?.planId).toBe('plan_p45_1')
+    expect(link?.taskIds).toEqual(['task_p45_1'])
+  })
 })
