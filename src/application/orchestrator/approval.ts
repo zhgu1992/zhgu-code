@@ -37,6 +37,7 @@ export interface ApprovalAuditEvent {
   toolName?: string
   reasonCode: PermissionReasonCode
   effectiveMode?: PermissionMode
+  eventSeq: number
 }
 
 export interface TaskAdmissionDecision {
@@ -66,6 +67,14 @@ function mapToApprovalAudit(
     taskId,
     reasonCode: event.reasonCode,
     effectiveMode: event.effectiveMode,
+    eventSeq: event.eventSeq,
+  }))
+}
+
+function withEventSeq(events: Omit<ApprovalAuditEvent, 'eventSeq'>[]): ApprovalAuditEvent[] {
+  return events.map((event, index) => ({
+    ...event,
+    eventSeq: index + 1,
   }))
 }
 
@@ -86,6 +95,7 @@ export function evaluateTaskAdmission(
           taskId: input.taskId,
           reasonCode: 'plan_mode_blocked',
           effectiveMode: 'ask',
+          eventSeq: 1,
         },
       ],
     }
@@ -104,6 +114,7 @@ export function evaluateTaskAdmission(
           taskId: input.taskId,
           reasonCode: 'permission_denied',
           effectiveMode: 'ask',
+          eventSeq: 1,
         },
       ],
     }
@@ -119,7 +130,7 @@ export function evaluateTaskAdmission(
     ? inheritance.reasonCode
     : 'permission_denied'
 
-  const auditEvents: ApprovalAuditEvent[] = [
+  const auditEvents = withEventSeq([
     {
       event: 'plan_approved',
       planId: context.planId,
@@ -134,7 +145,7 @@ export function evaluateTaskAdmission(
       reasonCode,
       effectiveMode: inheritance.effectiveMode,
     },
-  ]
+  ])
 
   return {
     allowed,
@@ -165,6 +176,7 @@ export function evaluateToolCallApproval(
           toolName: input.toolName,
           reasonCode,
           effectiveMode: 'ask',
+          eventSeq: 1,
         },
       ],
     }
@@ -184,7 +196,7 @@ export function evaluateToolCallApproval(
     effectiveMode: inheritance.effectiveMode,
     driftDetected: inheritance.driftDetected,
     reasonCode,
-    auditEvents: [
+    auditEvents: withEventSeq([
       {
         event: 'plan_approved',
         planId: context.planId,
@@ -201,6 +213,6 @@ export function evaluateToolCallApproval(
         reasonCode,
         effectiveMode: inheritance.effectiveMode,
       },
-    ],
+    ]),
   }
 }

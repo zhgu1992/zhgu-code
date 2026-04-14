@@ -17,6 +17,7 @@ export interface PermissionInheritanceAuditEvent {
   requestedMode: PermissionMode
   effectiveMode: PermissionMode
   reasonCode: PermissionReasonCode
+  eventSeq: number
 }
 
 export interface PermissionInheritanceDecision {
@@ -52,6 +53,7 @@ export function resolvePermissionInheritance(
           requestedMode,
           effectiveMode: requestedMode,
           reasonCode: 'approved',
+          eventSeq: 1,
         },
       ],
     }
@@ -68,6 +70,7 @@ export function resolvePermissionInheritance(
         requestedMode,
         effectiveMode: 'ask',
         reasonCode: 'permission_drift_detected',
+        eventSeq: 1,
       },
     ],
   }

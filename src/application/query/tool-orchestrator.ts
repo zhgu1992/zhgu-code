@@ -425,6 +425,7 @@ function emitApprovalAuditEvents(args: {
         taskId: event.taskId,
         reasonCode: event.reasonCode,
         effectiveMode: event.effectiveMode,
+        eventSeq: event.eventSeq,
       },
     })
   }

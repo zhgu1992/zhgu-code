@@ -99,10 +99,8 @@ describe('Phase 4 / WP4-D Approval and permission inheritance', () => {
 
     expect(result.driftDetected).toBe(true)
     expect(result.effectiveMode).toBe('ask')
-    expect(
-      result.auditEvents.some(
-        (event) => event.event === 'permission_drift_detected' && event.reasonCode === 'permission_drift_detected',
-      ),
-    ).toBe(true)
+    const driftEvent = result.auditEvents.find((event) => event.event === 'permission_drift_detected')
+    expect(driftEvent?.reasonCode).toBe('permission_drift_detected')
+    expect(driftEvent?.eventSeq).toBe(2)
   })
 })
