@@ -15,6 +15,7 @@ export * from './permission-inheritance.js'
 export * from './runtime-session.js'
 export * from './task-model.js'
 export * from './task-state.js'
+export * from './task-queue.js'
 
 export class NoopOrchestrator implements IOrchestrator {
   private sessions = new Map<string, OrchestratorSession>()

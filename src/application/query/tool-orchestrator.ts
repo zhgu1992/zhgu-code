@@ -1,4 +1,5 @@
 import type { ContentBlock } from '../../definitions/types/index.js'
+import type { TaskTerminalReason } from '../../architecture/contracts/orchestrator.js'
 import { createSpanId } from '../../observability/ids.js'
 import { getTraceBus } from '../../observability/trace-bus.js'
 import type { AppStore } from '../../state/store.js'
@@ -12,7 +13,10 @@ import { createRecoveryEventPayload, decideRecovery, sleep } from './recovery.js
 import {
   evaluateTaskAdmission,
   evaluateToolCallApproval,
-  createTaskLifecycleModel,
+  createTaskQueue,
+  type TaskQueue,
+  type TaskQueueItem,
+  type TaskEvent,
   type ApprovalAuditEvent,
 } from '../orchestrator/index.js'
 import type { ActivePlanContextSnapshot } from '../orchestrator/runtime-session.js'
@@ -55,11 +59,30 @@ export async function executeToolAndPersist(
     fallbackTaskId: call.id,
     context: args.orchestratorContext,
   })
-  const taskLifecycle = createTaskLifecycleModel({
+  const taskQueue = createTaskQueue()
+  let taskQueueItem = taskQueue.enqueue({
     taskId: orchestrationLink.taskId,
     title: `tool:${call.name}`,
   })
-  taskLifecycle.transition('start')
+  persistTaskLifecycle({
+    store,
+    traceBus,
+    turnId: state.currentTurnId ?? undefined,
+    planId: orchestrationLink.planId,
+    queueSize: taskQueue.size(),
+    queueItem: taskQueueItem,
+    event: 'task_enqueued',
+  })
+  taskQueueItem = transitionTaskQueueItem(taskQueue, orchestrationLink.taskId, 'start')
+  persistTaskLifecycle({
+    store,
+    traceBus,
+    turnId: state.currentTurnId ?? undefined,
+    planId: orchestrationLink.planId,
+    queueSize: taskQueue.size(),
+    queueItem: taskQueueItem,
+    event: 'task_started',
+  })
   const integrationRegistry = createIntegrationRegistryAdapter({
     sessionId: state.sessionId,
     traceId: state.traceId,
@@ -96,9 +119,40 @@ export async function executeToolAndPersist(
       },
     })
     state.setError(`Error: ${errorPayload}`)
-    taskLifecycle.transition('fail', 'runtime_error')
+    taskQueueItem = transitionTaskQueueItem(
+      taskQueue,
+      orchestrationLink.taskId,
+      'fail',
+      'runtime_error',
+    )
+    persistTaskLifecycle({
+      store,
+      traceBus,
+      turnId: state.currentTurnId ?? undefined,
+      planId: orchestrationLink.planId,
+      queueSize: taskQueue.size(),
+      queueItem: taskQueueItem,
+      event: 'task_failed',
+    })
     return 'stopped'
   }
+
+  taskQueueItem = taskQueue.bindExecutor({
+    taskId: orchestrationLink.taskId,
+    toolName: call.name,
+    capabilityId: callResolution.capability.capabilityId,
+    capabilitySource: callResolution.capability.source,
+  })
+  emitExecutorBindingEvent({
+    traceBus,
+    sessionId: state.sessionId,
+    traceId: state.traceId,
+    turnId: state.currentTurnId ?? undefined,
+    planId: orchestrationLink.planId,
+    taskId: orchestrationLink.taskId,
+    queueSize: taskQueue.size(),
+    queueItem: taskQueueItem,
+  })
 
   const approvalContext = buildApprovalContext(
     state.sessionId,
@@ -156,7 +210,21 @@ export async function executeToolAndPersist(
       },
     )
     state.setError(result)
-    taskLifecycle.transition('fail', 'permission_denied')
+    taskQueueItem = transitionTaskQueueItem(
+      taskQueue,
+      orchestrationLink.taskId,
+      'fail',
+      'permission_denied',
+    )
+    persistTaskLifecycle({
+      store,
+      traceBus,
+      turnId: state.currentTurnId ?? undefined,
+      planId: orchestrationLink.planId,
+      queueSize: taskQueue.size(),
+      queueItem: taskQueueItem,
+      event: 'task_failed',
+    })
     return 'stopped'
   }
 
@@ -213,7 +281,21 @@ export async function executeToolAndPersist(
       },
     )
     state.setError(result)
-    taskLifecycle.transition('fail', 'permission_denied')
+    taskQueueItem = transitionTaskQueueItem(
+      taskQueue,
+      orchestrationLink.taskId,
+      'fail',
+      'permission_denied',
+    )
+    persistTaskLifecycle({
+      store,
+      traceBus,
+      turnId: state.currentTurnId ?? undefined,
+      planId: orchestrationLink.planId,
+      queueSize: taskQueue.size(),
+      queueItem: taskQueueItem,
+      event: 'task_failed',
+    })
     return 'stopped'
   }
 
@@ -237,7 +319,21 @@ export async function executeToolAndPersist(
 
     if (deniedByUser) {
       state.setError(result)
-      taskLifecycle.transition('fail', 'permission_denied')
+      taskQueueItem = transitionTaskQueueItem(
+        taskQueue,
+        orchestrationLink.taskId,
+        'fail',
+        'permission_denied',
+      )
+      persistTaskLifecycle({
+        store,
+        traceBus,
+        turnId: state.currentTurnId ?? undefined,
+        planId: orchestrationLink.planId,
+        queueSize: taskQueue.size(),
+        queueItem: taskQueueItem,
+        event: 'task_failed',
+      })
       return 'stopped'
     }
 
@@ -352,7 +448,21 @@ export async function executeToolAndPersist(
         })
       }
       state.setError(classifiedToolError.message)
-      taskLifecycle.transition('fail', 'runtime_error')
+      taskQueueItem = transitionTaskQueueItem(
+        taskQueue,
+        orchestrationLink.taskId,
+        'fail',
+        'runtime_error',
+      )
+      persistTaskLifecycle({
+        store,
+        traceBus,
+        turnId: state.currentTurnId ?? undefined,
+        planId: orchestrationLink.planId,
+        queueSize: taskQueue.size(),
+        queueItem: taskQueueItem,
+        event: 'task_failed',
+      })
       return 'stopped'
     }
 
@@ -383,9 +493,99 @@ export async function executeToolAndPersist(
 
     turnStateMachine.transition({ type: 'tool_result_written' })
     state.setStreamingText('🔄 Processing response...')
-    taskLifecycle.transition('complete')
+    taskQueueItem = transitionTaskQueueItem(taskQueue, orchestrationLink.taskId, 'complete')
+    persistTaskLifecycle({
+      store,
+      traceBus,
+      turnId: state.currentTurnId ?? undefined,
+      planId: orchestrationLink.planId,
+      queueSize: taskQueue.size(),
+      queueItem: taskQueueItem,
+      event: 'task_completed',
+    })
     return 'handoff'
   }
+}
+
+function transitionTaskQueueItem(
+  taskQueue: TaskQueue,
+  taskId: string,
+  event: TaskEvent,
+  reason?: TaskTerminalReason,
+): TaskQueueItem {
+  return taskQueue.transition(taskId, event, reason)
+}
+
+function persistTaskLifecycle(args: {
+  store: AppStore
+  traceBus: ReturnType<typeof getTraceBus>
+  turnId?: string
+  planId: string
+  queueSize: number
+  queueItem: TaskQueueItem
+  event: 'task_enqueued' | 'task_started' | 'task_failed' | 'task_completed'
+}): void {
+  const state = args.store.getState()
+  state.upsertActivePlanTask({
+    taskId: args.queueItem.taskId,
+    title: args.queueItem.title,
+    status: args.queueItem.snapshot.status,
+    taskEventSeq: args.queueItem.snapshot.taskEventSeq,
+    terminalReason: args.queueItem.snapshot.terminalReason,
+  })
+
+  args.traceBus.emit({
+    stage: 'query',
+    event: args.event,
+    status:
+      args.queueItem.snapshot.status === 'failed' || args.queueItem.snapshot.status === 'canceled'
+        ? 'error'
+        : 'ok',
+    session_id: state.sessionId,
+    trace_id: state.traceId,
+    turn_id: args.turnId,
+    span_id: createSpanId(),
+    payload: {
+      planId: args.planId,
+      taskId: args.queueItem.taskId,
+      taskStatus: args.queueItem.snapshot.status,
+      taskEventSeq: args.queueItem.snapshot.taskEventSeq,
+      terminalReason: args.queueItem.snapshot.terminalReason,
+      queueSize: args.queueSize,
+      toolName: args.queueItem.executorBinding?.toolName,
+      capabilityId: args.queueItem.executorBinding?.capabilityId,
+      capabilitySource: args.queueItem.executorBinding?.capabilitySource,
+    },
+  })
+}
+
+function emitExecutorBindingEvent(args: {
+  traceBus: ReturnType<typeof getTraceBus>
+  sessionId: string
+  traceId: string
+  turnId?: string
+  planId: string
+  taskId: string
+  queueSize: number
+  queueItem: TaskQueueItem
+}): void {
+  args.traceBus.emit({
+    stage: 'query',
+    event: 'task_executor_bound',
+    status: 'ok',
+    session_id: args.sessionId,
+    trace_id: args.traceId,
+    turn_id: args.turnId,
+    span_id: createSpanId(),
+    payload: {
+      planId: args.planId,
+      taskId: args.taskId,
+      queueSize: args.queueSize,
+      toolName: args.queueItem.executorBinding?.toolName,
+      capabilityId: args.queueItem.executorBinding?.capabilityId,
+      capabilitySource: args.queueItem.executorBinding?.capabilitySource,
+    },
+  })
 }
 
 function hasPermissionDriftEvent(events: ApprovalAuditEvent[]): boolean {

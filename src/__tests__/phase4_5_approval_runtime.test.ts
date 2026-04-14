@@ -117,7 +117,75 @@ describe('Phase 4.5 / P45-S03 Approval runtime wiring', () => {
     expect(outcome).toBe('stopped')
     expect(store.getState().error).toContain('permission denied')
     expect(store.getState().error).toContain('permission_denied')
+    expect(store.getState().orchestratorRuntimeSession.activePlan?.taskIndex.task_rejected_1).toMatchObject({
+      status: 'failed',
+      terminalReason: 'permission_denied',
+    })
     expect(executeCount).toBe(0)
+  })
+
+  test('P45-S05-001 approved task should run through queue lifecycle and bind executor', async () => {
+    const store = createTestStore('auto')
+    store.getState().setActivePlanContext({
+      planId: 'plan_s05_1',
+      planMode: 'auto',
+      state: 'running',
+      planApprovalStatus: 'approved',
+    })
+
+    const traceEvents: Array<{ event: string; payload?: unknown }> = []
+    getTraceBus().addSink({
+      write(event) {
+        traceEvents.push({ event: event.event, payload: event.payload })
+      },
+    })
+
+    const turnStateMachine = createTurnStateMachine()
+    turnStateMachine.transition({ type: 'turn_start', turnId: 'turn_s05_1' })
+    turnStateMachine.transition({ type: 'tool_use_detected', toolMode: 'auto' })
+
+    const taskId = 'task_s05_success_1'
+    const planId = store.getState().orchestratorRuntimeSession.activePlan!.planId
+    const outcome = await executeToolAndPersist({
+      store,
+      call: {
+        id: taskId,
+        name: TEST_TOOL,
+        input: { value: 's05' },
+      },
+      orchestratorContext: {
+        planId,
+        taskId,
+      },
+      assistantContent: [],
+      turnStateMachine,
+      recoveryBudget: {
+        currentTotalAttempt: () => 0,
+        incrementTotalAttempt: () => undefined,
+        maxTotalAttempts: 2,
+      },
+    })
+
+    for (let i = 0; i < 20; i += 1) {
+      if (traceEvents.some((event) => event.event === 'task_completed')) {
+        break
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1))
+    }
+
+    expect(outcome).toBe('handoff')
+    expect(executeCount).toBe(1)
+    expect(store.getState().error).toBeNull()
+    expect(store.getState().orchestratorRuntimeSession.activePlan?.taskIndex[taskId]).toMatchObject({
+      status: 'completed',
+      taskEventSeq: 2,
+      terminalReason: null,
+    })
+
+    expect(traceEvents.some((event) => event.event === 'task_enqueued')).toBe(true)
+    expect(traceEvents.some((event) => event.event === 'task_started')).toBe(true)
+    expect(traceEvents.some((event) => event.event === 'task_executor_bound')).toBe(true)
+    expect(traceEvents.some((event) => event.event === 'task_completed')).toBe(true)
   })
 
   test('P45-S04-001 permission drift should downgrade mode to ask and keep tool execution callable', async () => {

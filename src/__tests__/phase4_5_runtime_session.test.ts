@@ -92,6 +92,32 @@ describe('Phase 4.5 / P45-S01 Runtime session skeleton', () => {
 
     expect(next.activePlan?.taskIndex.task_4_1.status).toBe('running')
     expect(next.activePlan?.taskIndex.task_4_1.taskEventSeq).toBe(2)
+    expect(next.activePlan?.taskIndex.task_4_1.terminalReason).toBeNull()
+  })
+
+  test('P45-S01-006 active plan task index should keep terminal reason for failed task', () => {
+    const base = writeActivePlanContext(
+      createRuntimeSessionSnapshot({
+        sessionId: 'session_5',
+        now: '2026-04-14T00:00:00.000Z',
+      }),
+      {
+        planId: 'plan_5',
+        planMode: 'plan',
+        now: '2026-04-14T00:00:01.000Z',
+      },
+    )
+    const next = upsertActivePlanTask(base, {
+      taskId: 'task_5_1',
+      title: 'run guarded tool',
+      status: 'failed',
+      taskEventSeq: 2,
+      terminalReason: 'permission_denied',
+      updatedAt: '2026-04-14T00:00:02.000Z',
+    })
+
+    expect(next.activePlan?.taskIndex.task_5_1.status).toBe('failed')
+    expect(next.activePlan?.taskIndex.task_5_1.terminalReason).toBe('permission_denied')
   })
 
   test('P45-S01-005 store should expose unified active plan read/write entry', () => {

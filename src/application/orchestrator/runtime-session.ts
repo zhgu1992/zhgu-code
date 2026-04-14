@@ -1,5 +1,5 @@
 import type { PermissionMode } from '../../definitions/types/permission.js'
-import type { TaskStatus } from '../../architecture/contracts/orchestrator.js'
+import type { TaskStatus, TaskTerminalReason } from '../../architecture/contracts/orchestrator.js'
 import type { PlanApprovalStatus } from './approval.js'
 import type { PlanState, PlanTerminalReason } from './plan-state.js'
 
@@ -8,6 +8,7 @@ export interface RuntimeTaskIndexEntry {
   title: string
   status: TaskStatus
   taskEventSeq: number
+  terminalReason?: TaskTerminalReason | null
   updatedAt: string
 }
 
@@ -56,6 +57,7 @@ export interface UpsertActivePlanTaskInput {
   title: string
   status: TaskStatus
   taskEventSeq: number
+  terminalReason?: TaskTerminalReason | null
   updatedAt?: string
 }
 
@@ -154,6 +156,7 @@ export function upsertActivePlanTask(
       title: input.title,
       status: input.status,
       taskEventSeq: input.taskEventSeq,
+      terminalReason: input.terminalReason ?? null,
       updatedAt: taskUpdatedAt,
     },
   }
