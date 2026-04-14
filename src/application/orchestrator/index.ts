@@ -5,8 +5,11 @@ import type {
   SubmitTaskInput,
   TaskRecord,
   TaskStatus,
+  TaskTerminalReason,
 } from '../../architecture/contracts/orchestrator.js'
 export * from './plan-state.js'
+export * from './task-model.js'
+export * from './task-state.js'
 
 export class NoopOrchestrator implements IOrchestrator {
   private sessions = new Map<string, OrchestratorSession>()
@@ -39,20 +42,27 @@ export class NoopOrchestrator implements IOrchestrator {
     return task
   }
 
-  async updateTaskStatus(taskId: string, status: TaskStatus, output?: string): Promise<void> {
+  async updateTaskStatus(
+    taskId: string,
+    status: TaskStatus,
+    output?: string,
+    reason?: TaskTerminalReason,
+  ): Promise<void> {
     for (const list of this.tasks.values()) {
       const task = list.find((item) => item.id === taskId)
       if (task) {
         task.status = status
         task.output = output
+        task.terminalReason = reason
+        task.taskEventSeq = (task.taskEventSeq ?? 0) + 1
         task.updatedAt = new Date().toISOString()
         return
       }
     }
   }
 
-  async cancelTask(taskId: string): Promise<void> {
-    return this.updateTaskStatus(taskId, 'canceled')
+  async cancelTask(taskId: string, reason: TaskTerminalReason = 'user_canceled'): Promise<void> {
+    return this.updateTaskStatus(taskId, 'canceled', undefined, reason)
   }
 
   async listTasks(sessionId: string): Promise<TaskRecord[]> {

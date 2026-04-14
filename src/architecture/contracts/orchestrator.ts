@@ -3,9 +3,17 @@ export type OrchestratorMode = 'chat' | 'plan'
 export type TaskStatus =
   | 'pending'
   | 'running'
+  | 'paused'
   | 'completed'
   | 'failed'
   | 'canceled'
+
+export type TaskTerminalReason =
+  | 'user_canceled'
+  | 'permission_denied'
+  | 'dependency_failed'
+  | 'timeout'
+  | 'runtime_error'
 
 export interface TaskRecord {
   id: string
@@ -14,6 +22,8 @@ export interface TaskRecord {
   createdAt: string
   updatedAt: string
   output?: string
+  terminalReason?: TaskTerminalReason
+  taskEventSeq?: number
 }
 
 export interface OrchestratorSession {
@@ -33,7 +43,12 @@ export interface SubmitTaskInput {
 export interface IOrchestrator {
   startSession(input: StartSessionInput): Promise<OrchestratorSession>
   submitTask(sessionId: string, input: SubmitTaskInput): Promise<TaskRecord>
-  updateTaskStatus(taskId: string, status: TaskStatus, output?: string): Promise<void>
-  cancelTask(taskId: string): Promise<void>
+  updateTaskStatus(
+    taskId: string,
+    status: TaskStatus,
+    output?: string,
+    reason?: TaskTerminalReason,
+  ): Promise<void>
+  cancelTask(taskId: string, reason?: TaskTerminalReason): Promise<void>
   listTasks(sessionId: string): Promise<TaskRecord[]>
 }
