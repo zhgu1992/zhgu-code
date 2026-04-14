@@ -1,7 +1,16 @@
 # Phase 5 - 质量与发布平面
 
 - Status: Not Started
-- Updated: 2026-04-10
+- Updated: 2026-04-14
+
+## 执行入口（架构师拆解）
+
+详细执行拆解见：
+- [phase5-execution-breakdown.md](./phase5-execution-breakdown.md)
+
+建议执行方式：
+1. 先按本文件冻结 `wip5-01` 对标结论与门禁字段。
+2. 再按 `phase5-execution-breakdown.md` 的 `P5-Sxx` 切片推进实现。
 
 ## 启动前对标结论（必填）
 
