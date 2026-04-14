@@ -8,6 +8,8 @@ import type {
   TaskTerminalReason,
 } from '../../architecture/contracts/orchestrator.js'
 export * from './plan-state.js'
+export * from './aggregation.js'
+export * from './aggregation-strategies.js'
 export * from './task-model.js'
 export * from './task-state.js'
 
