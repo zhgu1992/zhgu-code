@@ -6,6 +6,7 @@ import type {
   TaskRecord,
   TaskStatus,
 } from '../../architecture/contracts/orchestrator.js'
+export * from './plan-state.js'
 
 export class NoopOrchestrator implements IOrchestrator {
   private sessions = new Map<string, OrchestratorSession>()
