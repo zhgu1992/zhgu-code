@@ -82,6 +82,7 @@
 | `wip4-04` Agent 子任务汇聚协议 | 子任务结果合并规则未收敛 | 统一汇聚策略并保证结果一致性 | 汇聚策略层 + 冲突解决规则 | `AGG-001~006` 通过 | 降级为单子任务串行 | Pending |
 | `wip4-05` 审批与权限继承治理 | 计划与任务权限边界易漂移 | 明确审批流与权限继承策略 | 审批事件链 + 权限继承矩阵 | `APR-001~005` 通过 | 权限异常时强制 ask 模式 | Pending |
 | `wip4-06` 收口验收与文档回写 | 缺少阶段验收与回滚记录 | 形成可重复验收和豁免模板 | 汇总测试、对标结论、回滚预案 | `phase4_* + 前置门` 全绿 | 未达标不推进 Phase 5 | In Progress |
+| `wip4-07` Phase 4.5 生产流闭环 | 当前编排能力多为模块化能力，主链路仍是最小接线 | 将 Plan/Task/Approval/Aggregation 接入真实运行链，形成端到端可用流 | 会话级 plan runtime + task queue + 审批事件流 + 汇聚接线 + e2e 收口 | `P45-01~06` 与 `phase4_5*.test.ts` 通过 | 降级到单任务直跑 + ask 安全模式 | Pending |
 
 ## 阶段完成标准（DoD）
 
@@ -304,6 +305,41 @@
 5. 风险与回滚
 - 收口逻辑异常时保留手工验收通路，但不得标记阶段 Done。
 
+### WP4.5：生产流闭环（对应 `wip4-07`）
+
+- 目标：把 Phase 4 能力底座接入真实运行主链路，形成可直接使用的生产流。
+- 产出：
+  - `docs/roadmap/phase-4/phase4-5-plan.md`
+  - `src/__tests__/phase4_5*.test.ts`
+  - `docs/roadmap/phase-4/phase4-5-acceptance.md`
+  - `docs/roadmap/phase-4/phase4-5-rollback.md`
+- 验收：`/plan -> submit -> approve -> execute -> aggregate -> output` 端到端可跑通。
+
+#### WP4.5 设计核心（必须先达成共识）
+
+1. 为什么做（Why）
+- 目前 `/plan` 已可切换与阻断工具，但审批、任务编排、结果汇聚尚未形成完整生产流闭环。
+
+2. 问题与边界
+- In Scope：Plan runtime session、审批事件流、Task 队列、运行时汇聚、e2e 收口。
+- Out of Scope：分布式调度、外部持久化后端、组织级 RBAC。
+
+3. 核心设计
+- 在 query 主链路绑定会话级 `planId` 与任务生命周期。
+- 审批链 `plan_approved -> task_admitted -> tool_call_allowed` 作为运行时硬门。
+- 汇聚策略接入真实输出路径，确保结果可解释且可回放。
+
+4. 验证 Case（DoD）
+- `P45-001` 未审批 plan 不可进入任务执行态。
+- `P45-002` 审批通过后 task 可执行并写入生命周期事件。
+- `P45-003` 审批拒绝后所有相关 task/tool 返回 `permission_denied`。
+- `P45-004` 多 task 聚合支持 `first_success` 与 `all_required`。
+- `P45-005` 事件链可追踪到 `planId/taskId/toolName/reasonCode`。
+- `P45-006` e2e 门禁通过后方可推进 Phase 5。
+
+5. 风险与回滚
+- 任何主链路不稳定都回退到“单任务直跑 + ask 模式”，并保留 Phase 4 已有能力测试基线。
+
 ## Phase 4 执行切片（架构师建议）
 
 1. `PR4-0`（`wip4-01a`）：最小模式切换命令与 `A0-001~006`。
@@ -312,6 +348,7 @@
 4. `PR4-3`（`wip4-04`）：汇聚策略与 `AGG-001~006`。
 5. `PR4-4`（`wip4-05`）：审批继承与 `APR-001~005`。
 6. `PR4-5`（`wip4-06`）：收口模板与 `CLS4-001~004`。
+7. `PR4-6`（`wip4-07`）：生产流闭环与 `P45-001~006`。
 
 ## 关键文件（首批）
 

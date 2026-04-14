@@ -15,6 +15,7 @@ import {
   createTaskLifecycleModel,
   type ApprovalAuditEvent,
 } from '../orchestrator/index.js'
+import type { ActivePlanContextSnapshot } from '../orchestrator/runtime-session.js'
 
 export interface ToolCall {
   id: string
@@ -85,7 +86,11 @@ export async function executeToolAndPersist(
     return 'stopped'
   }
 
-  const approvalContext = buildApprovalContext(state.sessionId, state.permissionMode)
+  const approvalContext = buildApprovalContext(
+    state.sessionId,
+    state.permissionMode,
+    state.orchestratorRuntimeSession.activePlan,
+  )
   const taskAdmission = evaluateTaskAdmission(approvalContext, {
     taskId: call.id,
   })
@@ -324,11 +329,20 @@ function isToolPermissionDenied(result: string, toolName: string): boolean {
 function buildApprovalContext(
   sessionId: string,
   mode: 'ask' | 'auto' | 'plan',
+  activePlan: ActivePlanContextSnapshot | null,
 ): {
   planId: string
   planMode: 'ask' | 'auto' | 'plan'
   planApprovalStatus: 'pending' | 'approved' | 'rejected'
 } {
+  if (activePlan) {
+    return {
+      planId: activePlan.planId,
+      planMode: activePlan.planMode,
+      planApprovalStatus: activePlan.planApprovalStatus,
+    }
+  }
+
   return {
     planId: `plan_${sessionId}`,
     planMode: mode,

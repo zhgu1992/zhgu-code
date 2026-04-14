@@ -5,6 +5,7 @@ import { executeTool } from '../tools/executor.js'
 import type { AppState, AppActions, PendingTool, ToolProgress } from '../state/store.js'
 import type { PermissionMode } from '../definitions/types/permission.js'
 import type { QueryTurnTransition } from '../architecture/contracts/query-engine.js'
+import { createRuntimeSessionSnapshot } from '../application/orchestrator/runtime-session.js'
 
 type StoreState = AppState & AppActions
 
@@ -28,6 +29,10 @@ function createMockStore(overrides: Partial<AppState> = {}) {
     turnStopReason: null,
     lastContextHealthSnapshot: null,
     lastContextHealthUpdatedAt: null,
+    orchestratorRuntimeSession: createRuntimeSessionSnapshot({
+      sessionId: 'test-session',
+      now: '2026-04-14T00:00:00.000Z',
+    }),
     pendingTool: null,
     toolProgress: null,
     inputTokens: 0,
@@ -54,6 +59,47 @@ function createMockStore(overrides: Partial<AppState> = {}) {
     setThinking: (thinking) => set({ thinking }),
     appendThinking: (chunk) => set((s) => ({ thinking: (s.thinking || '') + chunk })),
     setError: (error) => set({ error }),
+    setPermissionMode: (permissionMode) => set({ permissionMode }),
+    setActivePlanContext: (input) =>
+      set((s) => ({
+        orchestratorRuntimeSession: {
+          ...s.orchestratorRuntimeSession,
+          activePlan: input
+            ? {
+                planId: input.planId,
+                state: input.state ?? 'draft',
+                terminalReason: input.terminalReason ?? null,
+                planMode: input.planMode,
+                planApprovalStatus: input.planApprovalStatus ?? 'pending',
+                taskIndex: input.taskIndex ?? {},
+                createdAt: input.now ?? '2026-04-14T00:00:00.000Z',
+                updatedAt: input.now ?? '2026-04-14T00:00:00.000Z',
+              }
+            : null,
+          updatedAt: input?.now ?? '2026-04-14T00:00:00.000Z',
+        },
+      })),
+    patchActivePlanContext: (input) =>
+      set((s) => ({
+        orchestratorRuntimeSession: !s.orchestratorRuntimeSession.activePlan
+          ? s.orchestratorRuntimeSession
+          : {
+              ...s.orchestratorRuntimeSession,
+              activePlan: {
+                ...s.orchestratorRuntimeSession.activePlan,
+                state: input.state ?? s.orchestratorRuntimeSession.activePlan.state,
+                terminalReason:
+                  input.terminalReason ?? s.orchestratorRuntimeSession.activePlan.terminalReason,
+                planMode: input.planMode ?? s.orchestratorRuntimeSession.activePlan.planMode,
+                planApprovalStatus:
+                  input.planApprovalStatus ??
+                  s.orchestratorRuntimeSession.activePlan.planApprovalStatus,
+                updatedAt: input.now ?? '2026-04-14T00:00:00.000Z',
+              },
+              updatedAt: input.now ?? '2026-04-14T00:00:00.000Z',
+            },
+      })),
+    upsertActivePlanTask: () => undefined,
     setPendingTool: (tool) => set({ pendingTool: tool }),
     resolvePendingTool: (approved: boolean) => {
       const { pendingTool } = get()

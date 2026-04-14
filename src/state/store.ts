@@ -7,6 +7,16 @@ import type { ContextHealthSnapshot } from '../application/query/context-health.
 import { createSessionId, createSpanId, createTraceId } from '../observability/ids.js'
 import { getTraceBus } from '../observability/trace-bus.js'
 import { JsonlTranscriptWriter } from '../application/query/transcript/writer.js'
+import {
+  createRuntimeSessionSnapshot,
+  patchActivePlanContext,
+  upsertActivePlanTask,
+  writeActivePlanContext,
+  type RuntimeSessionSnapshot,
+  type WriteActivePlanContextInput,
+  type PatchActivePlanContextInput,
+  type UpsertActivePlanTaskInput,
+} from '../application/orchestrator/runtime-session.js'
 import type {
   QueryTurnState,
   QueryTurnStopReason,
@@ -47,6 +57,7 @@ export interface AppState {
   turnStopReason: QueryTurnStopReason | null
   lastContextHealthSnapshot: ContextHealthSnapshot | null
   lastContextHealthUpdatedAt: string | null
+  orchestratorRuntimeSession: RuntimeSessionSnapshot
 
   // Messages
   messages: Message[]
@@ -77,6 +88,9 @@ export interface AppActions {
   setTurnState: (state: QueryTurnState, reason?: QueryTurnStopReason | null) => void
   applyTurnTransition: (transition: QueryTurnTransition) => void
   setContextHealthSnapshot: (snapshot: ContextHealthSnapshot, updatedAt?: string) => void
+  setActivePlanContext: (input: WriteActivePlanContextInput | null) => void
+  patchActivePlanContext: (input: PatchActivePlanContextInput) => void
+  upsertActivePlanTask: (input: UpsertActivePlanTaskInput) => void
 
   // Messages
   addMessage: (message: Message) => void
@@ -173,6 +187,7 @@ export function createStore(options: CreateStoreOptions): AppStore {
     turnStopReason: null,
     lastContextHealthSnapshot: null,
     lastContextHealthUpdatedAt: null,
+    orchestratorRuntimeSession: createRuntimeSessionSnapshot({ sessionId }),
     messages: [],
     isStreaming: false,
     streamingText: null,
@@ -195,6 +210,21 @@ export function createStore(options: CreateStoreOptions): AppStore {
         lastContextHealthSnapshot: snapshot,
         lastContextHealthUpdatedAt: updatedAt,
       }),
+
+    setActivePlanContext: (input) =>
+      set((state) => ({
+        orchestratorRuntimeSession: writeActivePlanContext(state.orchestratorRuntimeSession, input),
+      })),
+
+    patchActivePlanContext: (input) =>
+      set((state) => ({
+        orchestratorRuntimeSession: patchActivePlanContext(state.orchestratorRuntimeSession, input),
+      })),
+
+    upsertActivePlanTask: (input) =>
+      set((state) => ({
+        orchestratorRuntimeSession: upsertActivePlanTask(state.orchestratorRuntimeSession, input),
+      })),
 
     applyTurnTransition: (transition) => {
       const state = get()
