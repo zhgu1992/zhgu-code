@@ -106,8 +106,9 @@ export async function executeToolAndPersist(
     state.orchestratorRuntimeSession.activePlan,
     orchestrationLink.planId,
   )
-  const taskAdmission = evaluateTaskAdmission(approvalContext, {
+  let taskAdmission = evaluateTaskAdmission(approvalContext, {
     taskId: orchestrationLink.taskId,
+    requestedMode: state.permissionMode,
   })
   emitApprovalAuditEvents({
     traceBus,
@@ -117,6 +118,31 @@ export async function executeToolAndPersist(
     toolName: call.name,
     events: taskAdmission.auditEvents,
   })
+
+  if (!taskAdmission.allowed && hasPermissionDriftEvent(taskAdmission.auditEvents)) {
+    applyPermissionDriftGuard({
+      store,
+      traceBus,
+      turnId: state.currentTurnId ?? undefined,
+      planId: orchestrationLink.planId,
+      taskId: orchestrationLink.taskId,
+      toolName: call.name,
+      source: 'task',
+      driftEventSeq: findPermissionDriftEventSeq(taskAdmission.auditEvents),
+    })
+    taskAdmission = evaluateTaskAdmission(approvalContext, {
+      taskId: orchestrationLink.taskId,
+      requestedMode: 'ask',
+    })
+    emitApprovalAuditEvents({
+      traceBus,
+      sessionId: state.sessionId,
+      traceId: state.traceId,
+      turnId: state.currentTurnId ?? undefined,
+      toolName: call.name,
+      events: taskAdmission.auditEvents,
+    })
+  }
 
   if (!taskAdmission.allowed) {
     const result = formatApprovalDeniedResult(
@@ -134,9 +160,10 @@ export async function executeToolAndPersist(
     return 'stopped'
   }
 
-  const toolApproval = evaluateToolCallApproval(approvalContext, {
+  let toolApproval = evaluateToolCallApproval(approvalContext, {
     taskId: orchestrationLink.taskId,
     toolName: call.name,
+    requestedMode: state.permissionMode,
   })
   emitApprovalAuditEvents({
     traceBus,
@@ -146,6 +173,32 @@ export async function executeToolAndPersist(
     toolName: call.name,
     events: toolApproval.auditEvents,
   })
+
+  if (!toolApproval.allowed && toolApproval.driftDetected) {
+    applyPermissionDriftGuard({
+      store,
+      traceBus,
+      turnId: state.currentTurnId ?? undefined,
+      planId: orchestrationLink.planId,
+      taskId: orchestrationLink.taskId,
+      toolName: call.name,
+      source: 'tool',
+      driftEventSeq: findPermissionDriftEventSeq(toolApproval.auditEvents),
+    })
+    toolApproval = evaluateToolCallApproval(approvalContext, {
+      taskId: orchestrationLink.taskId,
+      toolName: call.name,
+      requestedMode: 'ask',
+    })
+    emitApprovalAuditEvents({
+      traceBus,
+      sessionId: state.sessionId,
+      traceId: state.traceId,
+      turnId: state.currentTurnId ?? undefined,
+      toolName: call.name,
+      events: toolApproval.auditEvents,
+    })
+  }
 
   if (!toolApproval.allowed) {
     const result = formatApprovalDeniedResult(
@@ -333,6 +386,53 @@ export async function executeToolAndPersist(
     taskLifecycle.transition('complete')
     return 'handoff'
   }
+}
+
+function hasPermissionDriftEvent(events: ApprovalAuditEvent[]): boolean {
+  return events.some((event) => event.event === 'permission_drift_detected')
+}
+
+function findPermissionDriftEventSeq(events: ApprovalAuditEvent[]): number | null {
+  const drift = events.find((event) => event.event === 'permission_drift_detected')
+  return drift?.eventSeq ?? null
+}
+
+function applyPermissionDriftGuard(args: {
+  store: AppStore
+  traceBus: ReturnType<typeof getTraceBus>
+  turnId?: string
+  planId: string
+  taskId: string
+  toolName: string
+  source: 'task' | 'tool'
+  driftEventSeq: number | null
+}): void {
+  const state = args.store.getState()
+  if (state.permissionMode !== 'ask') {
+    state.setPermissionMode('ask', {
+      source: 'orchestrator_drift_guard',
+      command: '/drift-guard',
+    })
+  }
+
+  args.traceBus.emit({
+    stage: 'query',
+    event: 'orchestrator_permission_drift_guard',
+    status: 'ok',
+    session_id: state.sessionId,
+    trace_id: state.traceId,
+    turn_id: args.turnId,
+    span_id: createSpanId(),
+    payload: {
+      reasonCode: 'permission_drift_detected',
+      source: args.source,
+      planId: args.planId,
+      taskId: args.taskId,
+      toolName: args.toolName,
+      eventSeq: args.driftEventSeq,
+      downgradedToMode: 'ask',
+    },
+  })
 }
 
 function isToolPermissionDenied(result: string, toolName: string): boolean {

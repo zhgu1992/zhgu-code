@@ -5,6 +5,7 @@ import { executeToolAndPersist } from '../application/query/tool-orchestrator.js
 import { createTurnStateMachine } from '../application/query/turn-state.js'
 import { getTools } from '../tools/registry.js'
 import type { Tool } from '../definitions/types/index.js'
+import { getTraceBus } from '../observability/trace-bus.js'
 
 const TEST_TOOL = 'Phase45ApprovalRuntimeTool'
 let executeCount = 0
@@ -40,12 +41,14 @@ describe('Phase 4.5 / P45-S03 Approval runtime wiring', () => {
   beforeEach(() => {
     executeCount = 0
     installTestTool()
+    getTraceBus().clearSinks()
   })
 
   afterEach(() => {
     delete process.env.PHASE2_PERMISSION_RULES_JSON
     delete process.env.PHASE2_EXECUTOR_GOVERNANCE_ENABLED
     delete process.env.phase2ExecutorGovernanceEnabled
+    getTraceBus().clearSinks()
   })
 
   test('P45-S03-001 /submit should create active plan and move draft -> awaiting-approval', () => {
@@ -115,5 +118,67 @@ describe('Phase 4.5 / P45-S03 Approval runtime wiring', () => {
     expect(store.getState().error).toContain('permission denied')
     expect(store.getState().error).toContain('permission_denied')
     expect(executeCount).toBe(0)
+  })
+
+  test('P45-S04-001 permission drift should downgrade mode to ask and keep tool execution callable', async () => {
+    const store = createTestStore('auto')
+    store.getState().setActivePlanContext({
+      planId: 'plan_drift_1',
+      planMode: 'ask',
+      state: 'running',
+      planApprovalStatus: 'approved',
+    })
+
+    const traceEvents: Array<{ event: string; payload?: unknown }> = []
+    getTraceBus().addSink({
+      write(event) {
+        traceEvents.push({ event: event.event, payload: event.payload })
+      },
+    })
+
+    const turnStateMachine = createTurnStateMachine()
+    turnStateMachine.transition({ type: 'turn_start', turnId: 'turn_drift_1' })
+    turnStateMachine.transition({ type: 'tool_use_detected', toolMode: 'auto' })
+    const outcome = await executeToolAndPersist({
+      store,
+      call: {
+        id: 'task_drift_1',
+        name: TEST_TOOL,
+        input: { value: 'drift' },
+      },
+      orchestratorContext: {
+        planId: 'plan_drift_1',
+        taskId: 'task_drift_1',
+      },
+      assistantContent: [],
+      turnStateMachine,
+      recoveryBudget: {
+        currentTotalAttempt: () => 0,
+        incrementTotalAttempt: () => undefined,
+        maxTotalAttempts: 2,
+      },
+    })
+
+    for (let i = 0; i < 20; i += 1) {
+      if (traceEvents.some((event) => event.event === 'orchestrator_permission_drift_guard')) {
+        break
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1))
+    }
+
+    expect(outcome).toBe('handoff')
+    expect(store.getState().permissionMode).toBe('ask')
+    expect(store.getState().error).toBeNull()
+    expect(executeCount).toBe(1)
+
+    const driftGuard = traceEvents.find((event) => event.event === 'orchestrator_permission_drift_guard')
+    expect(driftGuard).toBeDefined()
+    const payload = driftGuard?.payload as
+      | { reasonCode?: string; eventSeq?: number; downgradedToMode?: string; source?: string }
+      | undefined
+    expect(payload?.reasonCode).toBe('permission_drift_detected')
+    expect(payload?.eventSeq).toBe(2)
+    expect(payload?.downgradedToMode).toBe('ask')
+    expect(payload?.source).toBe('task')
   })
 })
