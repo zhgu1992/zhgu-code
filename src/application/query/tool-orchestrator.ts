@@ -9,6 +9,12 @@ import { buildRuntimeIntegrationRegistryInput } from '../../platform/integration
 import type { TurnStateMachine } from './turn-state.js'
 import { classifyToolResult } from './errors.js'
 import { createRecoveryEventPayload, decideRecovery, sleep } from './recovery.js'
+import {
+  evaluateTaskAdmission,
+  evaluateToolCallApproval,
+  createTaskLifecycleModel,
+  type ApprovalAuditEvent,
+} from '../orchestrator/index.js'
 
 export interface ToolCall {
   id: string
@@ -36,6 +42,11 @@ export async function executeToolAndPersist(
   const { store, call, assistantContent, turnStateMachine, recoveryBudget } = args
   const state = store.getState()
   const traceBus = getTraceBus()
+  const taskLifecycle = createTaskLifecycleModel({
+    taskId: call.id,
+    title: `tool:${call.name}`,
+  })
+  taskLifecycle.transition('start')
   const integrationRegistry = createIntegrationRegistryAdapter({
     sessionId: state.sessionId,
     traceId: state.traceId,
@@ -70,8 +81,69 @@ export async function executeToolAndPersist(
       },
     })
     state.setError(`Error: ${errorPayload}`)
+    taskLifecycle.transition('fail', 'runtime_error')
     return 'stopped'
   }
+
+  const approvalContext = buildApprovalContext(state.sessionId, state.permissionMode)
+  const taskAdmission = evaluateTaskAdmission(approvalContext, {
+    taskId: call.id,
+  })
+  emitApprovalAuditEvents({
+    traceBus,
+    sessionId: state.sessionId,
+    traceId: state.traceId,
+    turnId: state.currentTurnId ?? undefined,
+    toolName: call.name,
+    events: taskAdmission.auditEvents,
+  })
+
+  if (!taskAdmission.allowed) {
+    const result = formatApprovalDeniedResult(
+      taskAdmission.reasonCode,
+      `Task ${call.id} is not admitted`,
+      {
+        planId: approvalContext.planId,
+        taskId: call.id,
+        toolName: call.name,
+        effectiveMode: taskAdmission.effectiveMode,
+      },
+    )
+    state.setError(result)
+    taskLifecycle.transition('fail', 'permission_denied')
+    return 'stopped'
+  }
+
+  const toolApproval = evaluateToolCallApproval(approvalContext, {
+    taskId: call.id,
+    toolName: call.name,
+  })
+  emitApprovalAuditEvents({
+    traceBus,
+    sessionId: state.sessionId,
+    traceId: state.traceId,
+    turnId: state.currentTurnId ?? undefined,
+    toolName: call.name,
+    events: toolApproval.auditEvents,
+  })
+
+  if (!toolApproval.allowed) {
+    const result = formatApprovalDeniedResult(
+      toolApproval.reasonCode,
+      `Tool ${call.name} is blocked by orchestrator approval`,
+      {
+        planId: approvalContext.planId,
+        taskId: call.id,
+        toolName: call.name,
+        effectiveMode: toolApproval.effectiveMode,
+        driftDetected: toolApproval.driftDetected,
+      },
+    )
+    state.setError(result)
+    taskLifecycle.transition('fail', 'permission_denied')
+    return 'stopped'
+  }
+
   const tool = getTools().get(call.name)
   const safeToRetry = tool?.safeToRetry === true
   let attempt = 0
@@ -92,6 +164,7 @@ export async function executeToolAndPersist(
 
     if (deniedByUser) {
       state.setError(result)
+      taskLifecycle.transition('fail', 'permission_denied')
       return 'stopped'
     }
 
@@ -204,6 +277,7 @@ export async function executeToolAndPersist(
         })
       }
       state.setError(classifiedToolError.message)
+      taskLifecycle.transition('fail', 'runtime_error')
       return 'stopped'
     }
 
@@ -234,6 +308,7 @@ export async function executeToolAndPersist(
 
     turnStateMachine.transition({ type: 'tool_result_written' })
     state.setStreamingText('🔄 Processing response...')
+    taskLifecycle.transition('complete')
     return 'handoff'
   }
 }
@@ -244,4 +319,61 @@ function isToolPermissionDenied(result: string, toolName: string): boolean {
     result.startsWith(`Tool ${toolName} was denied by user`) ||
     normalized.includes('permission denied')
   )
+}
+
+function buildApprovalContext(
+  sessionId: string,
+  mode: 'ask' | 'auto' | 'plan',
+): {
+  planId: string
+  planMode: 'ask' | 'auto' | 'plan'
+  planApprovalStatus: 'pending' | 'approved' | 'rejected'
+} {
+  return {
+    planId: `plan_${sessionId}`,
+    planMode: mode,
+    planApprovalStatus: mode === 'plan' ? 'pending' : 'approved',
+  }
+}
+
+function emitApprovalAuditEvents(args: {
+  traceBus: ReturnType<typeof getTraceBus>
+  sessionId: string
+  traceId: string
+  turnId?: string
+  toolName: string
+  events: ApprovalAuditEvent[]
+}): void {
+  for (const event of args.events) {
+    args.traceBus.emit({
+      stage: 'query',
+      event: 'orchestrator_approval',
+      status:
+        event.event === 'task_rejected' || event.event === 'tool_call_denied' ? 'error' : 'ok',
+      session_id: args.sessionId,
+      trace_id: args.traceId,
+      turn_id: args.turnId,
+      span_id: createSpanId(),
+      payload: {
+        toolName: args.toolName,
+        approvalEvent: event.event,
+        planId: event.planId,
+        taskId: event.taskId,
+        reasonCode: event.reasonCode,
+        effectiveMode: event.effectiveMode,
+      },
+    })
+  }
+}
+
+function formatApprovalDeniedResult(
+  reasonCode: string,
+  userMessage: string,
+  meta: Record<string, unknown>,
+): string {
+  return [
+    `Error: permission denied (${reasonCode})`,
+    userMessage,
+    JSON.stringify({ reasonCode, userMessage, meta }),
+  ].join('\n')
 }
