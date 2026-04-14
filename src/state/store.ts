@@ -91,6 +91,10 @@ export interface AppActions {
 
   // Error
   setError: (error: string | null) => void
+  setPermissionMode: (
+    permissionMode: PermissionMode,
+    meta?: { source?: string; command?: string },
+  ) => void
 
   // Permission prompt
   setPendingTool: (tool: PendingTool | null) => void
@@ -267,6 +271,33 @@ export function createStore(options: CreateStoreOptions): AppStore {
         payload: { message: error },
       })
       set({ error })
+    },
+
+    setPermissionMode: (permissionMode, meta) => {
+      const state = get()
+      const fromMode = state.permissionMode
+      if (fromMode === permissionMode) {
+        return
+      }
+
+      traceBus.emit({
+        stage: 'state',
+        event: 'permission_mode_switched',
+        status: 'ok',
+        session_id: state.sessionId,
+        trace_id: state.traceId,
+        turn_id: state.currentTurnId ?? undefined,
+        span_id: createSpanId(),
+        priority: 'normal',
+        payload: {
+          fromMode,
+          toMode: permissionMode,
+          source: meta?.source ?? 'runtime',
+          command: meta?.command,
+        },
+      })
+
+      set({ permissionMode })
     },
 
     // Permission prompt
