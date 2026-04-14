@@ -1,7 +1,20 @@
 import type { AppStore } from '../../state/store.js'
 import type { PermissionMode } from '../../definitions/types/permission.js'
+import {
+  createPlanStateMachine,
+  IllegalPlanTransitionError,
+  type PlanSnapshot,
+} from '../../application/orchestrator/plan-state.js'
 
-type CommandName = '/mode' | '/plan' | '/implement' | '/auto' | '/ask'
+type CommandName =
+  | '/mode'
+  | '/plan'
+  | '/implement'
+  | '/auto'
+  | '/ask'
+  | '/submit'
+  | '/approve'
+  | '/reject'
 
 export interface ModeCommandDefinition {
   command: CommandName
@@ -13,6 +26,7 @@ interface ParsedCommand {
   handled: boolean
   command?: CommandName
   mode?: PermissionMode
+  approvalAction?: 'submit' | 'approve' | 'reject'
   error?: string
 }
 
@@ -50,6 +64,21 @@ const MODE_COMMAND_DEFINITIONS: ModeCommandDefinition[] = [
     command: '/mode',
     usage: '/mode <plan|ask|auto>',
     description: 'Set permission mode explicitly',
+  },
+  {
+    command: '/submit',
+    usage: '/submit',
+    description: 'Submit active plan for approval',
+  },
+  {
+    command: '/approve',
+    usage: '/approve',
+    description: 'Approve active plan and allow execution chain',
+  },
+  {
+    command: '/reject',
+    usage: '/reject',
+    description: 'Reject active plan with permission_denied',
   },
 ]
 
@@ -121,7 +150,116 @@ function parseModeCommand(input: string): ParsedCommand {
     return { handled: true, command, mode: implementMode }
   }
 
+  if (command === '/submit') {
+    if (parts.length > 1) {
+      return { handled: true, command, error: 'Usage: /submit' }
+    }
+    return { handled: true, command, approvalAction: 'submit' }
+  }
+
+  if (command === '/approve') {
+    if (parts.length > 1) {
+      return { handled: true, command, error: 'Usage: /approve' }
+    }
+    return { handled: true, command, approvalAction: 'approve' }
+  }
+
+  if (command === '/reject') {
+    if (parts.length > 1) {
+      return { handled: true, command, error: 'Usage: /reject' }
+    }
+    return { handled: true, command, approvalAction: 'reject' }
+  }
+
   return { handled: false }
+}
+
+function resolvePlanApprovalStatus(snapshot: PlanSnapshot): 'pending' | 'approved' | 'rejected' {
+  if (snapshot.state === 'draft' || snapshot.state === 'awaiting-approval') {
+    return 'pending'
+  }
+  if (snapshot.state === 'failed' && snapshot.terminalReason === 'permission_denied') {
+    return 'rejected'
+  }
+  return 'approved'
+}
+
+function executeApprovalCommand(
+  store: AppStore,
+  parsed: ParsedCommand & { command: CommandName; approvalAction: 'submit' | 'approve' | 'reject' },
+): ModeCommandResult {
+  const state = store.getState()
+  const activePlan = state.orchestratorRuntimeSession.activePlan
+  if (parsed.approvalAction !== 'submit' && !activePlan) {
+    return {
+      handled: true,
+      switched: false,
+      message: 'No active plan. Run /plan then /submit first.',
+    }
+  }
+
+  if (parsed.approvalAction === 'submit' && !activePlan && state.permissionMode !== 'plan') {
+    return {
+      handled: true,
+      switched: false,
+      message: 'Submit requires plan mode. Run /plan first.',
+    }
+  }
+
+  const planId = activePlan?.planId ?? `plan_${state.sessionId}`
+  const planMode = activePlan?.planMode ?? 'plan'
+  const initialState = activePlan?.state ?? 'draft'
+  const machine = createPlanStateMachine({
+    planId,
+    initialState,
+  })
+
+  try {
+    const snapshot =
+      parsed.approvalAction === 'submit'
+        ? machine.transition({ type: 'submit_for_approval' })
+        : parsed.approvalAction === 'approve'
+          ? machine.transition({ type: 'approval_granted' })
+          : machine.transition({ type: 'approval_rejected' })
+
+    if (!activePlan) {
+      state.setActivePlanContext({
+        planId,
+        planMode,
+        state: snapshot.state,
+        terminalReason: snapshot.terminalReason,
+        planApprovalStatus: resolvePlanApprovalStatus(snapshot),
+      })
+    } else {
+      state.patchActivePlanContext({
+        state: snapshot.state,
+        terminalReason: snapshot.terminalReason,
+        planApprovalStatus: resolvePlanApprovalStatus(snapshot),
+      })
+    }
+
+    const verb =
+      parsed.approvalAction === 'submit'
+        ? 'submitted for approval'
+        : parsed.approvalAction === 'approve'
+          ? 'approved'
+          : 'rejected'
+
+    return {
+      handled: true,
+      switched: false,
+      message: `Plan ${planId} ${verb}: ${initialState} -> ${snapshot.state}.`,
+    }
+  } catch (error) {
+    if (error instanceof IllegalPlanTransitionError) {
+      return {
+        handled: true,
+        switched: false,
+        message: `Invalid approval command in plan state "${error.state}".`,
+      }
+    }
+    throw error
+  }
 }
 
 export function executeModeCommand(store: AppStore, input: string): ModeCommandResult {
@@ -129,11 +267,27 @@ export function executeModeCommand(store: AppStore, input: string): ModeCommandR
   if (!parsed.handled) {
     return { handled: false, switched: false }
   }
-  if (!parsed.mode || parsed.error) {
+  if (parsed.error) {
     return {
       handled: true,
       switched: false,
       message: parsed.error ?? 'Invalid mode command',
+    }
+  }
+
+  if (parsed.approvalAction && parsed.command) {
+    return executeApprovalCommand(store, {
+      ...parsed,
+      approvalAction: parsed.approvalAction,
+      command: parsed.command,
+    })
+  }
+
+  if (!parsed.mode || !parsed.command) {
+    return {
+      handled: true,
+      switched: false,
+      message: 'Invalid mode command',
     }
   }
 
