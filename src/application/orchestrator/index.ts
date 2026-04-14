@@ -10,6 +10,8 @@ import type {
 export * from './plan-state.js'
 export * from './aggregation.js'
 export * from './aggregation-strategies.js'
+export * from './approval.js'
+export * from './permission-inheritance.js'
 export * from './task-model.js'
 export * from './task-state.js'
 
